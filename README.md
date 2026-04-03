@@ -54,36 +54,36 @@ bun run start
 
 Copy `.env.example` to `.env` and configure:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Your Telegram bot token from @BotFather |
-| `TELEGRAM_ALLOWED_CHAT_ID` | ❌ | Restrict bot to specific chat (recommended) |
-| `WORKSPACE_ROOT` | ❌ | Root directory containing workspaces (default: `/code_workspace`) |
-| `LOG_DIR` | ❌ | Log directory (default: `./logs`) |
-| `CLAUDE_MODEL` | ❌ | Override default Claude model |
-| `CLAUDE_PERMISSION_MODE` | ❌ | Permission mode (default: `default`) |
-| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌ | Commands per page in /cc menu (default: `8`) |
+| Variable                    | Required | Description                                                       |
+| --------------------------- | -------- | ----------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`        | ✅       | Your Telegram bot token from @BotFather                           |
+| `TELEGRAM_ALLOWED_CHAT_ID`  | ❌       | Restrict bot to specific chat (recommended)                       |
+| `WORKSPACE_ROOT`            | ❌       | Root directory containing workspaces (default: `/code_workspace`) |
+| `LOG_DIR`                   | ❌       | Log directory (default: `./logs`)                                 |
+| `CLAUDE_MODEL`              | ❌       | Override default Claude model                                     |
+| `CLAUDE_PERMISSION_MODE`    | ❌       | Permission mode (default: `default`)                              |
+| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌       | Commands per page in /cc menu (default: `8`)                      |
 
 ### Optional Anthropic Configuration
 
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | Direct API key authentication |
-| `ANTHROPIC_BASE_URL` | Custom API endpoint (for third-party providers) |
-| `ANTHROPIC_AUTH_TOKEN` | Auth token for custom endpoints |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token |
+| Variable                  | Description                                     |
+| ------------------------- | ----------------------------------------------- |
+| `ANTHROPIC_API_KEY`       | Direct API key authentication                   |
+| `ANTHROPIC_BASE_URL`      | Custom API endpoint (for third-party providers) |
+| `ANTHROPIC_AUTH_TOKEN`    | Auth token for custom endpoints                 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token                         |
 
 ---
 
 ## 📱 Commands
 
-| Command | Description |
-|---------|-------------|
-| `/start` | Show help message |
+| Command      | Description                                 |
+| ------------ | ------------------------------------------- |
+| `/start`     | Show help message                           |
 | `/workspace` | Select a workspace from the configured root |
-| `/status` | Display current status and active run |
-| `/stop` | Stop the current Claude run |
-| `/cc` | Open the Claude slash command menu |
+| `/status`    | Display current status and active run       |
+| `/stop`      | Stop the current Claude run                 |
+| `/cc`        | Open the Claude slash command menu          |
 
 Any other text or commands are forwarded directly to Claude Code in the selected workspace.
 

@@ -58,36 +58,36 @@ bun run start
 
 复制 `.env.example` 到 `.env` 并配置：
 
-| 变量名 | 必填 | 说明 |
-|--------|------|------|
-| `TELEGRAM_BOT_TOKEN` | ✅ | 从 @BotFather 获取的 Telegram 机器人令牌 |
-| `TELEGRAM_ALLOWED_CHAT_ID` | ❌ | 限制特定聊天可使用（推荐） |
-| `WORKSPACE_ROOT` | ❌ | 包含工作区的根目录（默认：`/code_workspace`） |
-| `LOG_DIR` | ❌ | 日志目录（默认：`./logs`） |
-| `CLAUDE_MODEL` | ❌ | 覆盖默认 Claude 模型 |
-| `CLAUDE_PERMISSION_MODE` | ❌ | 权限模式（默认：`default`） |
-| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌ | /cc 菜单每页命令数（默认：`8`） |
+| 变量名                      | 必填 | 说明                                          |
+| --------------------------- | ---- | --------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`        | ✅   | 从 @BotFather 获取的 Telegram 机器人令牌      |
+| `TELEGRAM_ALLOWED_CHAT_ID`  | ❌   | 限制特定聊天可使用（推荐）                    |
+| `WORKSPACE_ROOT`            | ❌   | 包含工作区的根目录（默认：`/code_workspace`） |
+| `LOG_DIR`                   | ❌   | 日志目录（默认：`./logs`）                    |
+| `CLAUDE_MODEL`              | ❌   | 覆盖默认 Claude 模型                          |
+| `CLAUDE_PERMISSION_MODE`    | ❌   | 权限模式（默认：`default`）                   |
+| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌   | /cc 菜单每页命令数（默认：`8`）               |
 
 ### 可选的 Anthropic 配置
 
-| 变量名 | 说明 |
-|--------|------|
-| `ANTHROPIC_API_KEY` | 直接 API 密钥认证 |
-| `ANTHROPIC_BASE_URL` | 自定义 API 端点（第三方提供商） |
-| `ANTHROPIC_AUTH_TOKEN` | 自定义端点的认证令牌 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth 令牌 |
+| 变量名                    | 说明                            |
+| ------------------------- | ------------------------------- |
+| `ANTHROPIC_API_KEY`       | 直接 API 密钥认证               |
+| `ANTHROPIC_BASE_URL`      | 自定义 API 端点（第三方提供商） |
+| `ANTHROPIC_AUTH_TOKEN`    | 自定义端点的认证令牌            |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth 令牌          |
 
 ---
 
 ## 📱 命令
 
-| 命令 | 说明 |
-|------|------|
-| `/start` | 显示帮助信息 |
+| 命令         | 说明                     |
+| ------------ | ------------------------ |
+| `/start`     | 显示帮助信息             |
 | `/workspace` | 从配置的根目录选择工作区 |
-| `/status` | 显示当前状态和运行中任务 |
-| `/stop` | 停止当前 Claude 运行 |
-| `/cc` | 打开 Claude 斜杠命令菜单 |
+| `/status`    | 显示当前状态和运行中任务 |
+| `/stop`      | 停止当前 Claude 运行     |
+| `/cc`        | 打开 Claude 斜杠命令菜单 |
 
 任何其他文本或命令都会直接转发到所选工作区的 Claude Code。
 

@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+set -eu
+
+echo "Running typecheck..."
+bun run typecheck
+
+echo "Running lint..."
+bun run lint
+
+echo "Checking formatting..."
+bun run fmt:check

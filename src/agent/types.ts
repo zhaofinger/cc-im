@@ -17,7 +17,10 @@ export interface AgentAdapter {
     workspacePath: string;
     sessionId?: string;
     message: string;
-    requestApproval?: (request: { approvalId: string; summary: string }) => Promise<"approve" | "reject">;
+    requestApproval?: (request: {
+      approvalId: string;
+      summary: string;
+    }) => Promise<"approve" | "reject">;
     onEvent: (event: ClaudeEvent) => Promise<void> | void;
   }): Promise<{ sessionId: string; stop: () => void }>;
 }

@@ -44,10 +44,7 @@ async function withEnvLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function withClaudeEnv<T>(
-  config: AppConfig,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withClaudeEnv<T>(config: AppConfig, fn: () => Promise<T>): Promise<T> {
   return await withEnvLock(async () => {
     const entries = buildClaudeEnvEntries(config);
     const saved = new Map<string, string | undefined>();

@@ -76,9 +76,7 @@ export class TelegramApi {
     await this.bot.api.setMyCommands(commands);
   }
 
-  private normalizeOptions(
-    options?: InlineKeyboard | SendMessageOptions,
-  ): SendMessageOptions {
+  private normalizeOptions(options?: InlineKeyboard | SendMessageOptions): SendMessageOptions {
     if (!options) {
       return {};
     }
