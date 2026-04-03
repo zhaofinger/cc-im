@@ -21,6 +21,17 @@ import {
 	resolveWorkspacePath,
 } from "../utils/workspace.ts";
 
+type ToolCall = {
+	id: string;
+	name: string;
+	status: "pending" | "running" | "completed" | "failed";
+	input?: string;
+	result?: string;
+	duration?: number;
+	startedAt: number;
+	completedAt?: number;
+};
+
 type ActiveRunRecord = {
 	runId: string;
 	progressMessageId: number;
@@ -29,10 +40,8 @@ type ActiveRunRecord = {
 	accumulatedText: string;
 	lastFlushedText: string;
 	progressText: string;
-	progressHistory: string[];
 	phase: string;
 	currentTool?: string;
-	lastToolResult?: string;
 	approvalState?: string;
 	lastProgressFlushedText: string;
 	flushTimer?: Timer;
@@ -41,21 +50,26 @@ type ActiveRunRecord = {
 	sessionId: string;
 	workspacePath: string;
 	workspaceName: string;
+	toolCalls: ToolCall[];
+	currentToolCall?: ToolCall;
+	startTime: number;
 };
 
 const PHASE_BADGES: Record<string, string> = {
-	thinking: "[thinking]",
-	ready: "[ready]",
-	"using tool": "[tool]",
-	"processing result": "[result]",
-	completed: "[done]",
-	failed: "[failed]",
+	thinking: "🤔",
+	ready: "✅",
+	"using tool": "🔧",
+	"processing result": "📊",
+	completed: "🎉",
+	failed: "❌",
+	starting: "🚀",
 };
 
 const PROGRESS_PREFIXES = {
 	PHASE: "phase:",
 	APPROVAL: "approval:",
-	TOOL: "Tool: ",
+	TOOL_START: "tool:start:",
+	TOOL_END: "tool:end:",
 	TOOL_RESULT: "Tool result: ",
 	THINKING: "Thinking...",
 	SESSION_READY: "Claude session ready:",
@@ -309,12 +323,13 @@ All other text is forwarded to Claude Code.`,
 			accumulatedText: "",
 			lastFlushedText: "",
 			progressText: "",
-			progressHistory: [],
-			phase: "Thinking",
+			phase: "Starting",
 			lastProgressFlushedText: "",
 			sessionId: existingSession?.sessionId || randomUUID(),
 			workspacePath,
 			workspaceName,
+			toolCalls: [],
+			startTime: Date.now(),
 		});
 		this.startTypingIndicator(chatId);
 		this.pushProgress(chatId, `phase:Thinking`);
@@ -397,7 +412,7 @@ All other text is forwarded to Claude Code.`,
 				return;
 			}
 			case "run_completed": {
-				this.pushProgress(chatId, "phase:Completed");
+				activeRun.phase = "Completed";
 				await this.flushProgressMessage(chatId, true);
 				await this.flushContentMessage(chatId, true);
 				this.stopTypingIndicator(activeRun);
@@ -406,8 +421,7 @@ All other text is forwarded to Claude Code.`,
 				return;
 			}
 			case "run_failed": {
-				this.pushProgress(chatId, `phase:Failed`);
-				this.pushProgress(chatId, `event:${args.event.message}`);
+				activeRun.phase = "Failed";
 				await this.flushProgressMessage(chatId, true);
 				await this.flushContentMessage(chatId, true);
 				this.stopTypingIndicator(activeRun);
@@ -531,9 +545,6 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 		if (!clean) {
 			return;
 		}
-		if (activeRun.progressHistory[activeRun.progressHistory.length - 1] === clean) {
-			return;
-		}
 		this.applyProgressUpdate(activeRun, clean);
 		activeRun.progressText = this.renderProgressText(activeRun);
 		this.scheduleProgressFlush(chatId);
@@ -568,33 +579,67 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 	}
 
 	private applyProgressUpdate(activeRun: ActiveRunRecord, line: string): void {
-		// 使用策略模式处理不同前缀
+		// 处理工具调用开始
+		if (line.startsWith(PROGRESS_PREFIXES.TOOL_START)) {
+			const payload = line.slice(PROGRESS_PREFIXES.TOOL_START.length);
+			const [name, durationStr] = payload.split("|");
+			const toolCall: ToolCall = {
+				id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+				name: name || "unknown",
+				status: "running",
+				startedAt: Date.now() - (Number(durationStr) || 0) * 1000,
+			};
+			activeRun.currentTool = toolCall.name;
+			activeRun.currentToolCall = toolCall;
+			activeRun.phase = "Using tool";
+			activeRun.toolCalls.push(toolCall);
+			// 限制工具调用历史数量
+			if (activeRun.toolCalls.length > 10) {
+				activeRun.toolCalls.shift();
+			}
+			return;
+		}
+
+		// 处理工具调用结束
+		if (line.startsWith(PROGRESS_PREFIXES.TOOL_END)) {
+			const payload = line.slice(PROGRESS_PREFIXES.TOOL_END.length);
+			const [name, result] = payload.split("|");
+			const toolCall = activeRun.currentToolCall;
+			if (toolCall && toolCall.name === name) {
+				toolCall.status = "completed";
+				toolCall.result = result || "";
+				toolCall.completedAt = Date.now();
+				toolCall.duration = Math.floor((toolCall.completedAt - toolCall.startedAt) / 1000);
+				activeRun.currentToolCall = undefined;
+				activeRun.currentTool = undefined;
+			}
+			activeRun.phase = "Processing result";
+			return;
+		}
+
+		// 处理其他前缀
 		const handlers: Record<string, (value: string) => void> = {
 			[PROGRESS_PREFIXES.PHASE]: (value) => {
 				activeRun.phase = value;
 			},
 			[PROGRESS_PREFIXES.APPROVAL]: (value) => {
 				activeRun.approvalState = value;
-				this.pushToHistory(activeRun, value);
-			},
-			[PROGRESS_PREFIXES.TOOL]: (value) => {
-				activeRun.currentTool = value;
-				activeRun.phase = "Using tool";
 			},
 			[PROGRESS_PREFIXES.TOOL_RESULT]: (value) => {
-				activeRun.lastToolResult = value;
-				activeRun.phase = "Processing result";
-				this.pushToHistory(activeRun, `Result: ${value}`);
+				if (activeRun.currentToolCall) {
+					activeRun.currentToolCall.result = value;
+				}
 			},
 			[PROGRESS_PREFIXES.COMMAND_OUTPUT]: (value) => {
-				activeRun.lastToolResult = value;
-				this.pushToHistory(activeRun, `Output: ${value}`);
+				if (activeRun.currentToolCall) {
+					activeRun.currentToolCall.result = value;
+				}
 			},
 			[PROGRESS_PREFIXES.CLAUDE_STATUS]: (value) => {
 				activeRun.phase = value || activeRun.phase;
 			},
-			[PROGRESS_PREFIXES.EVENT]: (value) => {
-				this.pushToHistory(activeRun, value);
+			[PROGRESS_PREFIXES.EVENT]: () => {
+				// 忽略普通事件
 			},
 		};
 
@@ -612,62 +657,94 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 		}
 		if (line.startsWith(PROGRESS_PREFIXES.SESSION_READY)) {
 			activeRun.phase = "Ready";
-			this.pushToHistory(activeRun, "Session ready");
 			return;
 		}
-
-		// 默认处理
-		this.pushToHistory(activeRun, line);
 	}
 
-	private pushToHistory(activeRun: ActiveRunRecord, item: string): void {
-		activeRun.progressHistory.push(item);
-		if (activeRun.progressHistory.length > 5) {
-			activeRun.progressHistory.shift();
-		}
+	private formatDuration(ms: number): string {
+		const seconds = Math.floor(ms / 1000);
+		if (seconds < 60) return `${seconds}s`;
+		const minutes = Math.floor(seconds / 60);
+		const remaining = seconds % 60;
+		return `${minutes}m ${remaining}s`;
 	}
 
 	private renderProgressText(activeRun: ActiveRunRecord): string {
-		const lines = [
-			`📡 CC-IM Status ${this.phaseBadge(activeRun.phase)}`,
-			"",
-			`📁 Workspace: ${activeRun.workspaceName}`,
-			`🧠 Phase: ${activeRun.phase}`,
-		];
+		const elapsed = Date.now() - activeRun.startTime;
+		const sections: string[] = [];
 
-		if (activeRun.currentTool) {
-			lines.push(`🛠 Tool: ${shorten(activeRun.currentTool, 80)}`);
+		// 头部状态栏
+		sections.push(`╔══════════════════════════════════════╗`);
+		sections.push(`║  🤖 Claude Code ${this.phaseBadge(activeRun.phase).padEnd(24)} ║`);
+		sections.push(`╠══════════════════════════════════════╣`);
+
+		// 基本信息
+		sections.push(`║  ⏱️  ${this.formatDuration(elapsed).padEnd(33)}║`);
+		sections.push(`║  📁 ${shorten(activeRun.workspaceName, 30).padEnd(33)} ║`);
+		sections.push(`║  📝 ${shorten(activeRun.runId.slice(0, 8), 30).padEnd(33)} ║`);
+		sections.push(`╠══════════════════════════════════════╣`);
+
+		// 当前状态
+		const phaseLine = `║  ${this.phaseBadge(activeRun.phase)} ${activeRun.phase}`;
+		sections.push(`${phaseLine.padEnd(38)} ║`);
+
+		// 正在使用的工具
+		if (activeRun.currentToolCall) {
+			sections.push(`╠──────────────────────────────────────╣`);
+			sections.push(`║  🔧 Current Tool: ${shorten(activeRun.currentToolCall.name, 22).padEnd(24)} ║`);
+			const toolDuration = this.formatDuration(Date.now() - activeRun.currentToolCall.startedAt);
+			sections.push(`║     Running for: ${toolDuration.padEnd(21)} ║`);
 		}
 
+		// 等待审批
 		if (activeRun.approvalState) {
-			lines.push(`🛂 Approval: ${shorten(activeRun.approvalState, 80)}`);
+			sections.push(`╠──────────────────────────────────────╣`);
+			sections.push(`║  🛂 Approval: ${shorten(activeRun.approvalState, 24).padEnd(24)} ║`);
 		}
 
-		if (activeRun.lastToolResult) {
-			lines.push("");
-			lines.push("📎 Last Result");
-			lines.push(shorten(activeRun.lastToolResult, 220));
-		}
+		// 工具调用历史
+		if (activeRun.toolCalls.length > 0) {
+			sections.push(`╠══════════════════════════════════════╣`);
+			sections.push(`║  🛠️  Tool Calls (${activeRun.toolCalls.length}):${"".padEnd(17)} ║`);
 
-		if (activeRun.progressHistory.length > 0) {
-			lines.push("");
-			lines.push("🕒 Recent");
-			for (const item of activeRun.progressHistory) {
-				lines.push(`• ${shorten(item, 120)}`);
+			const completedTools = activeRun.toolCalls.filter((t) => t.status === "completed");
+			const recentTools = completedTools.slice(-3);
+
+			for (const tool of recentTools) {
+				const statusIcon = "✅";
+				const duration = tool.duration ? `(${tool.duration}s)` : "";
+				const line = `║    ${statusIcon} ${shorten(tool.name, 18)} ${duration}`;
+				sections.push(`${line.padEnd(38)} ║`);
+
+				if (tool.result) {
+					const resultPreview = shorten(tool.result, 25);
+					const resultLine = `║       → ${resultPreview}`;
+					sections.push(`${resultLine.padEnd(38)} ║`);
+				}
+			}
+
+			if (completedTools.length > recentTools.length) {
+				const more = completedTools.length - recentTools.length;
+				sections.push(`║    ... and ${more} more${"".padEnd(21)} ║`);
 			}
 		}
 
-		return lines.join("\n");
+		sections.push(`╚══════════════════════════════════════╝`);
+
+		return sections.join("\n");
 	}
 
 	private renderInitialProgressText(runId: string, workspaceName: string): string {
-		return [
-			`📡 CC-IM Status [starting]`,
-			"",
-			`📁 Workspace: ${workspaceName}`,
-			`🧠 Phase: Initializing`,
-			`🆔 Run: ${runId.slice(0, 8)}`,
-		].join("\n");
+		const sections: string[] = [];
+		sections.push(`╔══════════════════════════════════════╗`);
+		sections.push(`║  🤖 Claude Code 🚀 Starting...       ║`);
+		sections.push(`╠══════════════════════════════════════╣`);
+		sections.push(`║  📁 ${shorten(workspaceName, 30).padEnd(33)} ║`);
+		sections.push(`║  📝 ${runId.slice(0, 8).padEnd(33)} ║`);
+		sections.push(`╠══════════════════════════════════════╣`);
+		sections.push(`║  ⏳ Initializing session...          ║`);
+		sections.push(`╚══════════════════════════════════════╝`);
+		return sections.join("\n");
 	}
 
 	private isAllowedChat(chatId: number): boolean {
@@ -678,6 +755,6 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 	}
 
 	private phaseBadge(phase: string): string {
-		return PHASE_BADGES[phase.toLowerCase()] ?? "[active]";
+		return PHASE_BADGES[phase.toLowerCase()] ?? "⚡";
 	}
 }

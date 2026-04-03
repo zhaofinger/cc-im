@@ -287,13 +287,13 @@ export class ClaudeAdapter implements AgentAdapter {
 		tool_use_summary: async (runId, sessionId, message, onEvent) => {
 			await onEvent({
 				type: "status",
-				message: `Tool result: ${message.summary}`,
+				message: `tool:end:${message.tool_name}|${message.summary}`,
 			});
 		},
 		tool_progress: async (runId, sessionId, message, onEvent) => {
 			await onEvent({
 				type: "status",
-				message: `Tool: ${message.tool_name} (${Math.floor(message.elapsed_time_seconds)}s)`,
+				message: `tool:start:${message.tool_name}|${Math.floor(message.elapsed_time_seconds)}`,
 			});
 		},
 		result: async (runId, sessionId, message, onEvent) => {
