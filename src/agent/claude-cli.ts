@@ -22,17 +22,17 @@ export class ClaudeCliRunner implements CliRunner {
   }
 
   run(options: CliRunOptions): CliRunSession {
-    const args = ["-p", options.prompt];
+    const args: string[] = [];
 
     // 危险模式：自动批准所有操作
+    // 注意：--dangerously-skip-permissions 是正确参数名
     if (options.mode === "dangerous") {
-      args.push("--dangerous");
+      args.push("--dangerously-skip-permissions");
     }
 
-    // 会话恢复
-    if (options.sessionId) {
-      args.push("--resume", options.sessionId);
-    }
+    // 使用 -p 非交互模式
+    args.push("-p");
+    args.push(options.prompt);
 
     const proc = Bun.spawn({
       cmd: ["claude", ...args],
@@ -55,7 +55,7 @@ export class ClaudeCliRunner implements CliRunner {
   async probeSlashCommands(workspacePath: string): Promise<string[]> {
     try {
       const proc = Bun.spawn({
-        cmd: ["claude", "-p", "/help"],
+        cmd: ["claude", "-p", "List all available slash commands"],
         cwd: workspacePath,
         env: process.env,
         stdout: "pipe",
@@ -66,33 +66,16 @@ export class ClaudeCliRunner implements CliRunner {
       await proc.exited;
 
       // 解析输出中的 slash commands
-      // 典型格式：
-      // Available slash commands:
-      //   /commit - Commit changes
-      //   /status - Show status
+      // 注意：实际输出格式可能因 claude 版本而异
       const commands: string[] = [];
       const lines = output.split("\n");
-      let inCommandSection = false;
 
       for (const line of lines) {
         const trimmed = line.trim();
-
-        if (trimmed.includes("slash commands") || trimmed.includes("Available commands")) {
-          inCommandSection = true;
-          continue;
-        }
-
-        if (inCommandSection && trimmed.startsWith("/")) {
-          // 提取命令名（/command - description 或 /command）
-          const match = trimmed.match(/^\/([a-zA-Z0-9_-]+)/);
-          if (match) {
-            commands.push(match[1]);
-          }
-        }
-
-        // 遇到空行或其他章节，结束命令区域
-        if (inCommandSection && trimmed === "") {
-          inCommandSection = false;
+        // 检测常见的 slash command 格式
+        const match = trimmed.match(/^\/(\w+)/);
+        if (match && !commands.includes(match[1])) {
+          commands.push(match[1]);
         }
       }
 
