@@ -4,7 +4,11 @@ import { chunk } from "../array.ts";
 describe("chunk", () => {
   test("should split array into chunks of specified size", () => {
     const result = chunk([1, 2, 3, 4, 5, 6], 2);
-    expect(result).toEqual([[1, 2], [3, 4], [5, 6]]);
+    expect(result).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
   });
 
   test("should handle array with elements not evenly divisible by size", () => {

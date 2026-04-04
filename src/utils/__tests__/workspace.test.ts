@@ -171,7 +171,9 @@ describe("resolveWorkspacePath", () => {
   });
 
   test("should throw error for path traversal attempt", () => {
-    expect(() => resolveWorkspacePath(testDir, "../etc")).toThrow("Workspace escapes configured root");
+    expect(() => resolveWorkspacePath(testDir, "../etc")).toThrow(
+      "Workspace escapes configured root",
+    );
   });
 
   test("should throw error for non-existent workspace", () => {
@@ -180,7 +182,9 @@ describe("resolveWorkspacePath", () => {
 
   test("should throw error for file instead of directory", () => {
     writeFileSync(join(testDir, "file-workspace"), "content");
-    expect(() => resolveWorkspacePath(testDir, "file-workspace")).toThrow("Workspace is not a directory");
+    expect(() => resolveWorkspacePath(testDir, "file-workspace")).toThrow(
+      "Workspace is not a directory",
+    );
   });
 
   test("should handle workspace at root level", () => {
@@ -200,7 +204,9 @@ describe("resolveWorkspacePath", () => {
   });
 
   test("should reject absolute paths outside root", () => {
-    expect(() => resolveWorkspacePath(testDir, "/etc/passwd")).toThrow("Workspace escapes configured root");
+    expect(() => resolveWorkspacePath(testDir, "/etc/passwd")).toThrow(
+      "Workspace escapes configured root",
+    );
   });
 
   test("should handle symlinks within root", () => {

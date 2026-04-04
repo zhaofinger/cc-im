@@ -32,7 +32,9 @@ function createMockTelegramApi(): TelegramApi {
   } as unknown as TelegramApi;
 }
 
-function createMockLogger(): Logger & { getLogs: () => { level: string; message: string; details?: unknown }[] } {
+function createMockLogger(): Logger & {
+  getLogs: () => { level: string; message: string; details?: unknown }[];
+} {
   const logs: { level: string; message: string; details?: unknown }[] = [];
   return {
     info: (message: string, details?: unknown) => {
@@ -45,7 +47,9 @@ function createMockLogger(): Logger & { getLogs: () => { level: string; message:
       logs.push({ level: "run", message: `${runId}: ${message}`, details });
     },
     getLogs: () => logs,
-  } as unknown as Logger & { getLogs: () => { level: string; message: string; details?: unknown }[] };
+  } as unknown as Logger & {
+    getLogs: () => { level: string; message: string; details?: unknown }[];
+  };
 }
 
 describe("runStartupChecks", () => {
@@ -71,8 +75,8 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const telegramStartLog = logs.find(l => l.message === "startup check: telegram");
-      const telegramPassLog = logs.find(l => l.message === "startup check passed: telegram");
+      const telegramStartLog = logs.find((l) => l.message === "startup check: telegram");
+      const telegramPassLog = logs.find((l) => l.message === "startup check passed: telegram");
 
       expect(telegramStartLog).toBeDefined();
       expect(telegramPassLog).toBeDefined();
@@ -82,10 +86,14 @@ describe("runStartupChecks", () => {
     test("should propagate telegram errors", async () => {
       const config = createMockConfig({ workspaceRoot: testDir });
       const telegram = createMockTelegramApi();
-      telegram.getMe = async () => { throw new Error("Telegram API error"); };
+      telegram.getMe = async () => {
+        throw new Error("Telegram API error");
+      };
       const logger = createMockLogger();
 
-      await expect(runStartupChecks({ config, telegram, logger })).rejects.toThrow("Telegram API error");
+      await expect(runStartupChecks({ config, telegram, logger })).rejects.toThrow(
+        "Telegram API error",
+      );
     });
 
     test("should handle telegram without username", async () => {
@@ -97,7 +105,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const telegramPassLog = logs.find(l => l.message === "startup check passed: telegram");
+      const telegramPassLog = logs.find((l) => l.message === "startup check passed: telegram");
       expect(telegramPassLog?.details).toEqual({ username: undefined, id: 12345 });
     });
   });
@@ -111,8 +119,10 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const workspaceStartLog = logs.find(l => l.message === "startup check: workspace root");
-      const workspacePassLog = logs.find(l => l.message === "startup check passed: workspace root");
+      const workspaceStartLog = logs.find((l) => l.message === "startup check: workspace root");
+      const workspacePassLog = logs.find(
+        (l) => l.message === "startup check passed: workspace root",
+      );
 
       expect(workspaceStartLog).toBeDefined();
       expect(workspacePassLog).toBeDefined();
@@ -125,8 +135,9 @@ describe("runStartupChecks", () => {
       const telegram = createMockTelegramApi();
       const logger = createMockLogger();
 
-      await expect(runStartupChecks({ config, telegram, logger }))
-        .rejects.toThrow("WORKSPACE_ROOT is not a directory");
+      await expect(runStartupChecks({ config, telegram, logger })).rejects.toThrow(
+        "WORKSPACE_ROOT is not a directory",
+      );
     });
 
     test("should throw if workspace root doesn't exist", async () => {
@@ -148,7 +159,9 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const workspacePassLog = logs.find(l => l.message === "startup check passed: workspace root");
+      const workspacePassLog = logs.find(
+        (l) => l.message === "startup check passed: workspace root",
+      );
       expect(workspacePassLog?.details).toHaveProperty("firstWorkspace");
       expect(workspacePassLog?.details).toHaveProperty("workspaceRoot", testDir);
     });
@@ -161,7 +174,9 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const workspacePassLog = logs.find(l => l.message === "startup check passed: workspace root");
+      const workspacePassLog = logs.find(
+        (l) => l.message === "startup check passed: workspace root",
+      );
       expect(workspacePassLog?.details).toHaveProperty("firstWorkspace", null);
     });
 
@@ -178,7 +193,9 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const workspacePassLog = logs.find(l => l.message === "startup check passed: workspace root");
+      const workspacePassLog = logs.find(
+        (l) => l.message === "startup check passed: workspace root",
+      );
       // Should find valid-project
       expect(workspacePassLog?.details).toHaveProperty("firstWorkspace");
       expect((workspacePassLog?.details as any).firstWorkspace).toContain("valid-project");
@@ -197,8 +214,8 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudeStartLog = logs.find(l => l.message === "startup check: claude");
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudeStartLog = logs.find((l) => l.message === "startup check: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
 
       expect(claudeStartLog).toBeDefined();
       expect(claudePassLog).toBeDefined();
@@ -213,7 +230,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
       expect(claudePassLog?.details).toHaveProperty("authConfigured", false);
     });
 
@@ -228,7 +245,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
       expect(claudePassLog?.details).toHaveProperty("provider", "api-key");
     });
 
@@ -243,7 +260,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
       expect(claudePassLog?.details).toHaveProperty("provider", "oauth-token");
     });
 
@@ -259,7 +276,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
       expect(claudePassLog?.details).toHaveProperty("provider", "custom-base-url");
     });
 
@@ -271,7 +288,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
       expect(claudePassLog?.details).toHaveProperty("provider", "unknown");
     });
 
@@ -286,9 +303,11 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const claudePassLog = logs.find(l => l.message === "startup check passed: claude");
+      const claudePassLog = logs.find((l) => l.message === "startup check passed: claude");
       expect(claudePassLog?.details).toHaveProperty("note");
-      expect((claudePassLog?.details as any).note).toContain("Deep Claude verification is deferred");
+      expect((claudePassLog?.details as any).note).toContain(
+        "Deep Claude verification is deferred",
+      );
     });
   });
 
@@ -304,7 +323,7 @@ describe("runStartupChecks", () => {
       await runStartupChecks({ config, telegram, logger });
 
       const logs = logger.getLogs();
-      const messages = logs.map(l => l.message);
+      const messages = logs.map((l) => l.message);
 
       // Checks should run in order
       const telegramIndex = messages.indexOf("startup check: telegram");
@@ -327,7 +346,7 @@ describe("runStartupChecks", () => {
       await expect(runStartupChecks({ config, telegram, logger })).resolves.toBeUndefined();
 
       const logs = logger.getLogs();
-      const passedChecks = logs.filter(l => l.message.startsWith("startup check passed:"));
+      const passedChecks = logs.filter((l) => l.message.startsWith("startup check passed:"));
       expect(passedChecks.length).toBe(3);
     });
   });

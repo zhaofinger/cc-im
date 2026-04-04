@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { InlineKeyboard } from "grammy";
-import {
-  buildWorkspaceMenu,
-  buildClaudeCommandsMenu,
-  buildApprovalMenu,
-} from "../menus.ts";
+import { buildWorkspaceMenu, buildClaudeCommandsMenu, buildApprovalMenu } from "../menus.ts";
 
 // Helper to get callback_data from button
 // Inline keyboard buttons can be various types, we need to extract callback_data from text buttons
@@ -78,7 +74,7 @@ describe("buildClaudeCommandsMenu", () => {
     expect(menu.inline_keyboard.length).toBe(2);
     // Navigation row with 1/N and possibly prev/next
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    expect(navRow.some(btn => btn.text === "1/1")).toBe(true);
+    expect(navRow.some((btn) => btn.text === "1/1")).toBe(true);
   });
 
   test("should paginate commands", () => {
@@ -88,7 +84,7 @@ describe("buildClaudeCommandsMenu", () => {
     // Page 0 should show commands 0-7
     expect(menu.inline_keyboard.length).toBe(5); // 4 rows of commands + nav
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    expect(navRow.some(btn => btn.text === "1/3")).toBe(true);
+    expect(navRow.some((btn) => btn.text === "1/3")).toBe(true);
   });
 
   test("should show next button when more pages exist", () => {
@@ -96,7 +92,9 @@ describe("buildClaudeCommandsMenu", () => {
     const menu = buildClaudeCommandsMenu(commands, 0, 8);
 
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    const hasNextButton = navRow.some(btn => btn.text === "Next" && getCallbackData(btn) === "ccpage:1");
+    const hasNextButton = navRow.some(
+      (btn) => btn.text === "Next" && getCallbackData(btn) === "ccpage:1",
+    );
     expect(hasNextButton).toBe(true);
   });
 
@@ -105,7 +103,9 @@ describe("buildClaudeCommandsMenu", () => {
     const menu = buildClaudeCommandsMenu(commands, 1, 8);
 
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    const hasPrevButton = navRow.some(btn => btn.text === "Prev" && getCallbackData(btn) === "ccpage:0");
+    const hasPrevButton = navRow.some(
+      (btn) => btn.text === "Prev" && getCallbackData(btn) === "ccpage:0",
+    );
     expect(hasPrevButton).toBe(true);
   });
 
@@ -113,21 +113,21 @@ describe("buildClaudeCommandsMenu", () => {
     const menu = buildClaudeCommandsMenu([], 0, 8);
     // Should still show navigation with 1/1
     expect(menu.inline_keyboard.length).toBe(1);
-    expect(menu.inline_keyboard[0].some(btn => btn.text === "1/1")).toBe(true);
+    expect(menu.inline_keyboard[0].some((btn) => btn.text === "1/1")).toBe(true);
   });
 
   test("should clamp page number to valid range", () => {
     const commands = ["cmd1", "cmd2"];
     const menu = buildClaudeCommandsMenu(commands, 100, 8);
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    expect(navRow.some(btn => btn.text === "1/1")).toBe(true);
+    expect(navRow.some((btn) => btn.text === "1/1")).toBe(true);
   });
 
   test("should handle negative page number", () => {
     const commands = ["cmd1", "cmd2"];
     const menu = buildClaudeCommandsMenu(commands, -5, 8);
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    expect(navRow.some(btn => btn.text === "1/1")).toBe(true);
+    expect(navRow.some((btn) => btn.text === "1/1")).toBe(true);
   });
 
   test("should set correct callback data for commands", () => {
@@ -144,7 +144,7 @@ describe("buildClaudeCommandsMenu", () => {
   test("should handle noop button in navigation", () => {
     const menu = buildClaudeCommandsMenu(["cmd"], 0, 8);
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    expect(navRow.some(btn => getCallbackData(btn) === "noop")).toBe(true);
+    expect(navRow.some((btn) => getCallbackData(btn) === "noop")).toBe(true);
   });
 
   test("should handle custom page size", () => {
@@ -152,7 +152,7 @@ describe("buildClaudeCommandsMenu", () => {
     const menu = buildClaudeCommandsMenu(commands, 0, 4);
     // Should be 3 pages with 4 per page
     const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
-    expect(navRow.some(btn => btn.text === "1/3")).toBe(true);
+    expect(navRow.some((btn) => btn.text === "1/3")).toBe(true);
   });
 });
 

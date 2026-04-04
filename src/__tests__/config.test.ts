@@ -68,7 +68,9 @@ describe("loadConfig", () => {
     process.env.TELEGRAM_BOT_TOKEN = "test-token";
     process.env.ANTHROPIC_AUTH_TOKEN = "auth-token";
     const { loadConfig } = await import("../config.ts");
-    expect(() => loadConfig()).toThrow("ANTHROPIC_BASE_URL is required when ANTHROPIC_AUTH_TOKEN is set");
+    expect(() => loadConfig()).toThrow(
+      "ANTHROPIC_BASE_URL is required when ANTHROPIC_AUTH_TOKEN is set",
+    );
   });
 
   test("should accept ANTHROPIC_AUTH_TOKEN when ANTHROPIC_BASE_URL is provided", async () => {

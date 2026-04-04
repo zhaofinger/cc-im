@@ -38,15 +38,20 @@ describe("MemoryState", () => {
 
     test("should throw error for different chatId", () => {
       memoryState.getChatState(123456);
-      expect(() => memoryState.getChatState(789012)).toThrow("This build supports a single active chat only");
+      expect(() => memoryState.getChatState(789012)).toThrow(
+        "This build supports a single active chat only",
+      );
     });
 
     test("should load from file if exists", () => {
-      writeFileSync(stateFile, JSON.stringify({
-        chatId: 123456,
-        selectedWorkspace: "/path/to/workspace",
-        selectedWorkspaceName: "my-workspace"
-      }));
+      writeFileSync(
+        stateFile,
+        JSON.stringify({
+          chatId: 123456,
+          selectedWorkspace: "/path/to/workspace",
+          selectedWorkspaceName: "my-workspace",
+        }),
+      );
 
       const memoryState2 = new MemoryState(stateFile);
       const state = memoryState2.getChatState(123456);
@@ -55,10 +60,13 @@ describe("MemoryState", () => {
     });
 
     test("should ignore file if chatId doesn't match", () => {
-      writeFileSync(stateFile, JSON.stringify({
-        chatId: 999999,
-        selectedWorkspace: "/path/to/workspace"
-      }));
+      writeFileSync(
+        stateFile,
+        JSON.stringify({
+          chatId: 999999,
+          selectedWorkspace: "/path/to/workspace",
+        }),
+      );
 
       const memoryState2 = new MemoryState(stateFile);
       const state = memoryState2.getChatState(123456);
@@ -126,7 +134,7 @@ describe("MemoryState", () => {
         id: "approval-1",
         runId: "run-123",
         summary: "test",
-        createdAt: Date.now()
+        createdAt: Date.now(),
       });
 
       const state = memoryState.setActiveRun(123456);
@@ -148,7 +156,7 @@ describe("MemoryState", () => {
         id: "approval-1",
         runId: "run-123",
         summary: "test approval",
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
       const state = memoryState.setPendingApproval(123456, approval);
       expect(state.pendingApproval).toBe(approval);
@@ -160,7 +168,7 @@ describe("MemoryState", () => {
         id: "approval-1",
         runId: "run-123",
         summary: "test",
-        createdAt: Date.now()
+        createdAt: Date.now(),
       });
 
       const state = memoryState.setPendingApproval(123456, undefined);
@@ -174,7 +182,7 @@ describe("MemoryState", () => {
         id: "approval-1",
         runId: "run-123",
         summary: "test",
-        createdAt: Date.now()
+        createdAt: Date.now(),
       });
 
       const state = memoryState.setPendingApproval(123456, undefined);
@@ -188,7 +196,7 @@ describe("MemoryState", () => {
         runId: "run-123",
         summary: "test",
         createdAt: Date.now(),
-        resolve: resolveFn
+        resolve: resolveFn,
       };
       const state = memoryState.setPendingApproval(123456, approval);
       expect(state.pendingApproval?.resolve).toBe(resolveFn);
@@ -207,7 +215,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1",
         sessionId: "session-123",
         slashCommands: ["/commit", "/status"],
-        lastTouchedAt: Date.now()
+        lastTouchedAt: Date.now(),
       });
 
       const session = memoryState.getWorkspaceSession("/workspace1");
@@ -224,7 +232,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1",
         sessionId: "session-123",
         slashCommands: ["/commit"],
-        lastTouchedAt: 1234567890
+        lastTouchedAt: 1234567890,
       });
 
       expect(session.workspacePath).toBe("/workspace1");
@@ -237,7 +245,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1",
         sessionId: "session-123",
         slashCommands: ["/commit"],
-        lastTouchedAt: 1234567890
+        lastTouchedAt: 1234567890,
       });
 
       const updated = memoryState.setWorkspaceSession({
@@ -245,7 +253,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1-renamed",
         sessionId: "session-456",
         slashCommands: ["/commit", "/status"],
-        lastTouchedAt: 9876543210
+        lastTouchedAt: 9876543210,
       });
 
       expect(updated.workspaceName).toBe("ws1-renamed");
@@ -261,7 +269,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1",
         sessionId: "session-1",
         slashCommands: [],
-        lastTouchedAt: Date.now()
+        lastTouchedAt: Date.now(),
       });
 
       memoryState.setWorkspaceSession({
@@ -269,7 +277,7 @@ describe("MemoryState", () => {
         workspaceName: "ws2",
         sessionId: "session-2",
         slashCommands: [],
-        lastTouchedAt: Date.now()
+        lastTouchedAt: Date.now(),
       });
 
       expect(memoryState.getWorkspaceSession("/workspace1")?.sessionId).toBe("session-1");
@@ -288,7 +296,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1",
         sessionId: "session-1",
         slashCommands: [],
-        lastTouchedAt: 1000
+        lastTouchedAt: 1000,
       });
 
       memoryState.setWorkspaceSession({
@@ -296,13 +304,13 @@ describe("MemoryState", () => {
         workspaceName: "ws2",
         sessionId: "session-2",
         slashCommands: [],
-        lastTouchedAt: 2000
+        lastTouchedAt: 2000,
       });
 
       const sessions = memoryState.allWorkspaceSessions();
       expect(sessions.length).toBe(2);
-      expect(sessions.map(s => s.workspaceName)).toContain("ws1");
-      expect(sessions.map(s => s.workspaceName)).toContain("ws2");
+      expect(sessions.map((s) => s.workspaceName)).toContain("ws1");
+      expect(sessions.map((s) => s.workspaceName)).toContain("ws2");
     });
 
     test("should return new array each time", () => {
@@ -311,7 +319,7 @@ describe("MemoryState", () => {
         workspaceName: "ws1",
         sessionId: "session-1",
         slashCommands: [],
-        lastTouchedAt: Date.now()
+        lastTouchedAt: Date.now(),
       });
 
       const sessions1 = memoryState.allWorkspaceSessions();

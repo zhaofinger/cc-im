@@ -24,7 +24,7 @@ describe("CodexAdapter", () => {
         adapter.probeSlashCommands(),
       ]);
 
-      results.forEach(result => {
+      results.forEach((result) => {
         expect(result.slashCommands).toEqual([]);
         expect(result.sessionId).toBeUndefined();
       });
@@ -39,7 +39,7 @@ describe("CodexAdapter", () => {
           workspacePath: "/workspace",
           message: "Hello",
           onEvent: () => {},
-        })
+        }),
       ).rejects.toThrow("CodexAdapter is not implemented yet");
     });
 
@@ -52,7 +52,7 @@ describe("CodexAdapter", () => {
           message: "Any message",
           requestApproval: async () => "approve",
           onEvent: () => {},
-        })
+        }),
       ).rejects.toThrow("CodexAdapter is not implemented yet");
     });
 
@@ -63,7 +63,7 @@ describe("CodexAdapter", () => {
           workspacePath: "/workspace",
           message: "",
           onEvent: () => {},
-        })
+        }),
       ).rejects.toThrow("CodexAdapter is not implemented yet");
     });
   });

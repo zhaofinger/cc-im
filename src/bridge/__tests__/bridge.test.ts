@@ -53,7 +53,12 @@ function createMockTelegramApi(): TelegramApi & { sent: unknown[] } {
       sent.push({ type: "draft", chatId, draftId, text });
     },
     getMe: async () => ({ id: 12345, username: "testbot" }),
-    editMessageText: async (chatId: number, messageId: number, text: unknown, options?: unknown) => {
+    editMessageText: async (
+      chatId: number,
+      messageId: number,
+      text: unknown,
+      options?: unknown,
+    ) => {
       sent.push({ type: "edit", chatId, messageId, text, options });
     },
     answerCallbackQuery: async (callbackQueryId: string, text?: string) => {
@@ -84,7 +89,10 @@ function createMockAgent(): AgentAdapter & { calls: unknown[] } {
       workspacePath: string;
       sessionId?: string;
       message: string;
-      requestApproval?: (request: { approvalId: string; summary: string }) => Promise<"approve" | "reject">;
+      requestApproval?: (request: {
+        approvalId: string;
+        summary: string;
+      }) => Promise<"approve" | "reject">;
       onEvent: (event: ClaudeEvent) => void | Promise<void>;
     }) => {
       calls.push({ method: "sendMessage", ...options });
@@ -95,7 +103,9 @@ function createMockAgent(): AgentAdapter & { calls: unknown[] } {
       }, 10);
       return {
         sessionId: "session-123",
-        stop: () => { calls.push({ method: "stop", runId: options.runId }); },
+        stop: () => {
+          calls.push({ method: "stop", runId: options.runId });
+        },
       };
     },
   } as AgentAdapter & { calls: unknown[] };
@@ -131,13 +141,27 @@ describe("Bridge", () => {
     test("should set bot commands", async () => {
       await bridge.setup();
 
-      const commandsCall = telegram.sent.find((s: any) => s.type === "commands") as { commands: { command: string; description: string }[] } | undefined;
+      const commandsCall = telegram.sent.find((s: any) => s.type === "commands") as
+        | { commands: { command: string; description: string }[] }
+        | undefined;
       expect(commandsCall).toBeDefined();
       expect(commandsCall!.commands).toContainEqual({ command: "start", description: "Show help" });
-      expect(commandsCall!.commands).toContainEqual({ command: "workspace", description: "Choose a workspace" });
-      expect(commandsCall!.commands).toContainEqual({ command: "status", description: "Show current status" });
-      expect(commandsCall!.commands).toContainEqual({ command: "stop", description: "Stop the active run" });
-      expect(commandsCall!.commands).toContainEqual({ command: "cc", description: "Open Claude command menu" });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "workspace",
+        description: "Choose a workspace",
+      });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "status",
+        description: "Show current status",
+      });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "stop",
+        description: "Stop the active run",
+      });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "cc",
+        description: "Open Claude command menu",
+      });
     });
   });
 
@@ -153,7 +177,9 @@ describe("Bridge", () => {
         text: "Hello",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.includes("not enabled"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.includes("not enabled"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -165,7 +191,9 @@ describe("Bridge", () => {
         text: "/start",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.toString().includes("cc-im"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.toString().includes("cc-im"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -177,7 +205,9 @@ describe("Bridge", () => {
         text: "/workspace",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send") as { text: string; options: { inline_keyboard: unknown[] } } | undefined;
+      const sent = telegram.sent.find((s: any) => s.type === "send") as
+        | { text: string; options: { inline_keyboard: unknown[] } }
+        | undefined;
       expect(sent).toBeDefined();
       expect(sent!.text).toContain("Choose a workspace");
       // Options is the InlineKeyboard directly (third argument position)
@@ -193,7 +223,9 @@ describe("Bridge", () => {
         text: "/status",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.toString().includes("CC-IM Status"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.toString().includes("CC-IM Status"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -205,7 +237,9 @@ describe("Bridge", () => {
         text: "/stop",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.includes("No active run"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.includes("No active run"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -217,7 +251,9 @@ describe("Bridge", () => {
         text: "/cc",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.includes("Select a workspace"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.includes("Select a workspace"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -229,7 +265,9 @@ describe("Bridge", () => {
         text: "Hello Claude",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.includes("Select a workspace"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.includes("Select a workspace"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -262,7 +300,9 @@ describe("Bridge", () => {
         data: "noop",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "answerCallback") as { callbackQueryId: string } | undefined;
+      const sent = telegram.sent.find((s: any) => s.type === "answerCallback") as
+        | { callbackQueryId: string }
+        | undefined;
       expect(sent).toBeDefined();
       expect(sent!.callbackQueryId).toBe("cb1");
     });
@@ -286,7 +326,9 @@ describe("Bridge", () => {
         data: "ws:workspace1",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send" && s.text.toString().includes("Workspace selected"));
+      const sent = telegram.sent.find(
+        (s: any) => s.type === "send" && s.text.toString().includes("Workspace selected"),
+      );
       expect(sent).toBeDefined();
     });
 
@@ -313,7 +355,9 @@ describe("Bridge", () => {
       });
 
       // Should have called agent.sendMessage
-      const agentCall = agent.calls.find((c: any) => c.method === "sendMessage") as { message: string } | undefined;
+      const agentCall = agent.calls.find((c: any) => c.method === "sendMessage") as
+        | { message: string }
+        | undefined;
       expect(agentCall).toBeDefined();
       expect(agentCall!.message).toBe("/commit");
     });
@@ -340,7 +384,7 @@ describe("Bridge", () => {
           id: "cb2",
           chatId: 123456,
           data: "approve:non-existent-id",
-        })
+        }),
       ).resolves.toBeUndefined();
     });
 
@@ -350,7 +394,7 @@ describe("Bridge", () => {
           id: "cb2",
           chatId: 123456,
           data: "reject:non-existent-id",
-        })
+        }),
       ).resolves.toBeUndefined();
     });
   });
@@ -387,10 +431,9 @@ describe("Bridge", () => {
       });
 
       // Should have sent a progress message
-      const progressSent = telegram.sent.find((s: any) =>
-        s.type === "send" &&
-        typeof s.text === "object" &&
-        s.text.text?.includes("Claude Code")
+      const progressSent = telegram.sent.find(
+        (s: any) =>
+          s.type === "send" && typeof s.text === "object" && s.text.text?.includes("Claude Code"),
       );
       expect(progressSent).toBeDefined();
     });

@@ -64,7 +64,9 @@ describe("markdownToTelegramHtml", () => {
   });
 
   test("should convert links", () => {
-    expect(markdownToTelegramHtml("[text](https://example.com)")).toBe('<a href="https://example.com">text</a>');
+    expect(markdownToTelegramHtml("[text](https://example.com)")).toBe(
+      '<a href="https://example.com">text</a>',
+    );
   });
 
   test("should convert headers", () => {
@@ -94,7 +96,9 @@ describe("markdownToTelegramHtml", () => {
   });
 
   test("should escape HTML in text", () => {
-    expect(markdownToTelegramHtml("<script>alert(1)</script>")).toBe("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(markdownToTelegramHtml("<script>alert(1)</script>")).toBe(
+      "&lt;script&gt;alert(1)&lt;/script&gt;",
+    );
   });
 
   test("should handle mixed formatting", () => {
@@ -152,7 +156,7 @@ describe("markdownToTelegramHtml", () => {
   });
 
   test("should handle special characters in code", () => {
-    const input = "```\n<html> & \"test\"\n```";
+    const input = '```\n<html> & "test"\n```';
     const result = markdownToTelegramHtml(input);
     // Bug: markers get processed before restoration
     expect(result).toContain("CC_IM_CODE_BLOCK");

@@ -60,7 +60,9 @@ describe("TelegramApi", () => {
     });
 
     test("should include reply markup", async () => {
-      const keyboard = { inline_keyboard: [[{ text: "Button", callback_data: "data" }]] } as unknown as import("grammy").InlineKeyboard;
+      const keyboard = {
+        inline_keyboard: [[{ text: "Button", callback_data: "data" }]],
+      } as unknown as import("grammy").InlineKeyboard;
       await api.sendMessage(456, "Hello", keyboard);
 
       expect(mockBot.api.sendMessage).toHaveBeenCalledWith(456, "Hello", {
@@ -129,7 +131,9 @@ describe("TelegramApi", () => {
     });
 
     test("should ignore 'message is not modified' error", async () => {
-      mockBot.api.editMessageText = mock(() => Promise.reject(new Error("message is not modified: 123")));
+      mockBot.api.editMessageText = mock(() =>
+        Promise.reject(new Error("message is not modified: 123")),
+      );
 
       await expect(api.editMessageText(456, 789, "Same text")).resolves.toBeUndefined();
     });
@@ -145,13 +149,17 @@ describe("TelegramApi", () => {
     test("should answer callback without text", async () => {
       await api.answerCallbackQuery("callback-id");
 
-      expect(mockBot.api.answerCallbackQuery).toHaveBeenCalledWith("callback-id", { text: undefined });
+      expect(mockBot.api.answerCallbackQuery).toHaveBeenCalledWith("callback-id", {
+        text: undefined,
+      });
     });
 
     test("should answer callback with text", async () => {
       await api.answerCallbackQuery("callback-id", "Answer text");
 
-      expect(mockBot.api.answerCallbackQuery).toHaveBeenCalledWith("callback-id", { text: "Answer text" });
+      expect(mockBot.api.answerCallbackQuery).toHaveBeenCalledWith("callback-id", {
+        text: "Answer text",
+      });
     });
   });
 
