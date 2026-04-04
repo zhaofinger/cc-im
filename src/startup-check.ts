@@ -2,6 +2,8 @@ import { statSync } from "node:fs";
 import type { AppConfig } from "./config.ts";
 import type { Logger } from "./logger.ts";
 import type { TelegramApi } from "./telegram/api.ts";
+import { ClaudeCliRunner } from "./agent/claude-cli.ts";
+import { CodexCliRunner } from "./agent/codex-cli.ts";
 import { firstWorkspaceCandidate } from "./utils/workspace.ts";
 
 export async function runStartupChecks(args: {
@@ -29,18 +31,17 @@ export async function runStartupChecks(args: {
     firstWorkspace: probeWorkspace || null,
   });
 
-  logger.info("startup check: claude");
-  logger.info("startup check passed: claude", {
-    authConfigured: Boolean(
-      config.anthropicApiKey || config.anthropicAuthToken || config.claudeCodeOauthToken,
-    ),
-    provider: config.anthropicBaseUrl
-      ? "custom-base-url"
-      : config.anthropicApiKey
-        ? "api-key"
-        : config.claudeCodeOauthToken
-          ? "oauth-token"
-          : "unknown",
-    note: "Deep Claude verification is deferred until the first real conversation",
+  logger.info("startup check: agent cli");
+  const runner = config.agentProvider === "codex" ? new CodexCliRunner() : new ClaudeCliRunner();
+
+  const isInstalled = await runner.checkInstalled();
+  if (!isInstalled) {
+    throw new Error(`${runner.name} CLI is not installed. Please install it first.`);
+  }
+
+  logger.info("startup check passed: agent cli", {
+    provider: config.agentProvider,
+    installed: true,
+    permissionMode: config.claudePermissionMode,
   });
 }

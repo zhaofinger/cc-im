@@ -17,6 +17,7 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     telegramBotToken: "test-token",
     workspaceRoot: testDir,
     logDir: join(testDir, "logs"),
+    agentProvider: "claude",
     claudePermissionMode: "default",
     claudeCommandsPageSize: 8,
     telegramAllowedChatId: undefined, // Allow all chats

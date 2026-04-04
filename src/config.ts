@@ -3,12 +3,10 @@ export type AppConfig = {
   telegramAllowedChatId?: number;
   workspaceRoot: string;
   logDir: string;
-  anthropicBaseUrl?: string;
-  anthropicAuthToken?: string;
-  anthropicApiKey?: string;
-  claudeCodeOauthToken?: string;
-  claudeModel?: string;
-  claudePermissionMode: string;
+  /** 选择使用哪个 CLI 工具 */
+  agentProvider: "claude" | "codex";
+  /** 危险模式自动批准所有操作 */
+  claudePermissionMode: "dangerous" | "default";
   claudeCommandsPageSize: number;
 };
 
@@ -26,14 +24,19 @@ export function loadConfig(): AppConfig {
   const allowedChatId = Bun.env.TELEGRAM_ALLOWED_CHAT_ID
     ? Number(Bun.env.TELEGRAM_ALLOWED_CHAT_ID)
     : undefined;
-  const anthropicBaseUrl = Bun.env.ANTHROPIC_BASE_URL || undefined;
-  const anthropicAuthToken = Bun.env.ANTHROPIC_AUTH_TOKEN || undefined;
 
   if (Number.isNaN(allowedChatId)) {
     throw new Error("TELEGRAM_ALLOWED_CHAT_ID must be a number");
   }
-  if (anthropicAuthToken && !anthropicBaseUrl) {
-    throw new Error("ANTHROPIC_BASE_URL is required when ANTHROPIC_AUTH_TOKEN is set");
+
+  const permissionMode = Bun.env.CLAUDE_PERMISSION_MODE || "default";
+  if (permissionMode !== "default" && permissionMode !== "dangerous") {
+    throw new Error("CLAUDE_PERMISSION_MODE must be 'default' or 'dangerous'");
+  }
+
+  const provider = Bun.env.AGENT_PROVIDER || "claude";
+  if (provider !== "claude" && provider !== "codex") {
+    throw new Error("AGENT_PROVIDER must be 'claude' or 'codex'");
   }
 
   return {
@@ -41,12 +44,8 @@ export function loadConfig(): AppConfig {
     telegramAllowedChatId: allowedChatId,
     workspaceRoot,
     logDir: Bun.env.LOG_DIR || "./logs",
-    anthropicBaseUrl,
-    anthropicAuthToken,
-    anthropicApiKey: Bun.env.ANTHROPIC_API_KEY || undefined,
-    claudeCodeOauthToken: Bun.env.CLAUDE_CODE_OAUTH_TOKEN || undefined,
-    claudeModel: Bun.env.CLAUDE_MODEL || undefined,
-    claudePermissionMode: Bun.env.CLAUDE_PERMISSION_MODE || "default",
+    agentProvider: provider as "claude" | "codex",
+    claudePermissionMode: permissionMode as "dangerous" | "default",
     claudeCommandsPageSize: Number(Bun.env.CLAUDE_COMMANDS_PAGE_SIZE || "8"),
   };
 }

@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.ts";
-import { ClaudeAdapter } from "./agent/claude.ts";
+import { CliAdapter } from "./agent/cli-adapter.ts";
 import { Bridge } from "./bridge/bridge.ts";
 import { Logger } from "./logger.ts";
 import { runStartupChecks } from "./startup-check.ts";
@@ -9,13 +9,8 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const logger = new Logger(config.logDir);
   const telegram = new TelegramApi(config.telegramBotToken);
-  const claude = new ClaudeAdapter({
-    config,
-    model: config.claudeModel,
-    permissionMode: config.claudePermissionMode,
-    logger,
-  });
-  const bridge = new Bridge(config, telegram, claude, logger);
+  const agent = new CliAdapter(config, logger);
+  const bridge = new Bridge(config, telegram, agent, logger);
 
   await runStartupChecks({
     config,
@@ -27,6 +22,8 @@ async function main(): Promise<void> {
   logger.info("bridge setup complete", {
     workspaceRoot: config.workspaceRoot,
     allowedChatId: config.telegramAllowedChatId,
+    agentProvider: config.agentProvider,
+    permissionMode: config.claudePermissionMode,
   });
 
   telegram.bot.on("message:text", async (ctx) => {

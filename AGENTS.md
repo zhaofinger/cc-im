@@ -26,7 +26,7 @@
 
 ## 测试规范
 
-测试框架为 `bun:test`。新增测试放在 `src/__tests__/`，文件名使用 `*.test.ts`。修改配置解析、环境变量读取、消息格式化、workspace 解析或 bridge 状态流转时，应同步补充或更新测试。测试必须可重复、无副作用；涉及环境变量时，参考 `src/__tests__/config.test.ts`，在 `beforeEach` 和 `afterEach` 中隔离修改。
+测试框架为 `bun:test`。新增测试放在 `src/__tests__/`，文件名使用 `*.test.ts`。实现新功能前，先写或先补对应测试用例，再开始改动实现。修改配置解析、环境变量读取、消息格式化、workspace 解析或 bridge 状态流转时，应同步补充或更新测试。测试必须可重复、无副作用；涉及环境变量时，参考 `src/__tests__/config.test.ts`，在 `beforeEach` 和 `afterEach` 中隔离修改。
 
 ## 提交与 Pull Request 规范
 
