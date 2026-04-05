@@ -76,23 +76,19 @@ describe("markdownToTelegramHtml", () => {
   });
 
   test("should convert inline code", () => {
-    // Bug: inline code markers get processed as bold before restoration
-    const result = markdownToTelegramHtml("`code`");
-    expect(result).toContain("CC_IM_INLINE_CODE");
+    expect(markdownToTelegramHtml("`code`")).toBe("<code>code</code>");
   });
 
   test("should convert code blocks", () => {
-    // Note: The implementation has a bug where __CC_IM_CODE_BLOCK__ markers
-    // get processed as bold markers before the code blocks are restored
-    const result = markdownToTelegramHtml("```\ncode block\n```");
-    // Actual output is "<b>CC_IM_CODE_BLOCK</b>0__" due to bug
-    expect(result).toContain("CC_IM_CODE_BLOCK");
+    expect(markdownToTelegramHtml("```\ncode block\n```")).toBe(
+      "<pre><code>code block</code></pre>",
+    );
   });
 
   test("should convert code blocks with language specifier", () => {
-    const result = markdownToTelegramHtml("```typescript\nconst x = 1;\n```");
-    // Bug: markers get processed as bold before restoration
-    expect(result).toContain("CC_IM_CODE_BLOCK");
+    expect(markdownToTelegramHtml("```typescript\nconst x = 1;\n```")).toBe(
+      "<pre><code>const x = 1;</code></pre>",
+    );
   });
 
   test("should escape HTML in text", () => {
@@ -106,8 +102,7 @@ describe("markdownToTelegramHtml", () => {
     const result = markdownToTelegramHtml(input);
     expect(result).toContain("<b>bold</b>");
     expect(result).toContain("<i>italic</i>");
-    // Bug: inline code marker gets processed as bold
-    expect(result).toContain("CC_IM_INLINE_CODE");
+    expect(result).toContain("<code>code</code>");
   });
 
   test("should handle empty string", () => {
@@ -121,8 +116,7 @@ describe("markdownToTelegramHtml", () => {
   test("should handle code blocks with backticks inside", () => {
     const input = "```\nconst x = `template` + 'literal';\n```";
     const result = markdownToTelegramHtml(input);
-    // Bug: markers get processed before restoration
-    expect(result).toContain("CC_IM_CODE_BLOCK");
+    expect(result).toContain("<pre><code>const x = `template` + 'literal';</code></pre>");
   });
 
   test("should handle incomplete formatting markers", () => {
@@ -150,16 +144,14 @@ describe("markdownToTelegramHtml", () => {
   test("should handle nested code blocks and inline code", () => {
     const input = "Text with `inline` and:\n```\nblock\n```";
     const result = markdownToTelegramHtml(input);
-    // Bug: markers get processed as bold before restoration
-    expect(result).toContain("CC_IM_INLINE_CODE");
-    expect(result).toContain("CC_IM_CODE_BLOCK");
+    expect(result).toContain("<code>inline</code>");
+    expect(result).toContain("<pre><code>block</code></pre>");
   });
 
   test("should handle special characters in code", () => {
     const input = '```\n<html> & "test"\n```';
     const result = markdownToTelegramHtml(input);
-    // Bug: markers get processed before restoration
-    expect(result).toContain("CC_IM_CODE_BLOCK");
+    expect(result).toContain('&lt;html&gt; &amp; "test"');
   });
 
   test("should handle list items", () => {
@@ -181,10 +173,10 @@ function test() {
 More text`;
     const result = markdownToTelegramHtml(input);
     expect(result).toContain("<b>Title with <b>bold</b></b>");
-    // Bug: markers get processed before restoration
-    expect(result).toContain("CC_IM_INLINE_CODE");
-    expect(result).toContain("CC_IM_CODE_BLOCK");
-    // Code block content should not be parsed as markdown (but currently is)
+    expect(result).toContain("<code>inline code</code>");
+    expect(result).toContain(
+      '<pre><code>function test() {\n  return "**not bold**";\n}</code></pre>',
+    );
   });
 
   test("should handle links with special characters", () => {
@@ -211,8 +203,7 @@ More text`;
     const input = "Text\n```\ncode\n```";
     const result = markdownToTelegramHtml(input);
     expect(result).toContain("Text");
-    // Bug: markers get processed before restoration
-    expect(result).toContain("CC_IM_CODE_BLOCK");
+    expect(result).toContain("<pre><code>code</code></pre>");
   });
 
   test("should handle code block without closing markers", () => {
@@ -220,5 +211,17 @@ More text`;
     const result = markdownToTelegramHtml(input);
     // Should still extract or handle gracefully
     expect(result).toContain("unclosed code");
+  });
+
+  test("should convert markdown tables to preformatted list blocks", () => {
+    const input = `| 时段 | 天气 | 气温 | 风力 |
+|------|------|------|------|
+| 上午 | 晴 | 21°C | 北风 7-8 km/h |
+| 中午 | 晴 | 24°C | 北风 8-9 km/h |`;
+
+    const result = markdownToTelegramHtml(input);
+    expect(result).toBe(
+      "<pre><code>上午: 天气: 晴 | 气温: 21°C | 风力: 北风 7-8 km/h\n中午: 天气: 晴 | 气温: 24°C | 风力: 北风 8-9 km/h</code></pre>",
+    );
   });
 });

@@ -22,17 +22,7 @@ export class ClaudeCliRunner implements CliRunner {
   }
 
   run(options: CliRunOptions): CliRunSession {
-    const args: string[] = [];
-
-    // 危险模式：自动批准所有操作
-    // 注意：--dangerously-skip-permissions 是正确参数名
-    if (options.mode === "dangerous") {
-      args.push("--dangerously-skip-permissions");
-    }
-
-    // 使用 -p 非交互模式
-    args.push("-p");
-    args.push(options.prompt);
+    const args = buildClaudeCliArgs(options);
 
     const proc = Bun.spawn({
       cmd: ["claude", ...args],
@@ -92,4 +82,28 @@ export class ClaudeCliRunner implements CliRunner {
   getSessionDir(workspacePath: string): string {
     return join(workspacePath, ".claude", "sessions");
   }
+}
+
+export function buildClaudeCliArgs(options: CliRunOptions): string[] {
+  const args: string[] = [];
+
+  if (options.mode === "dangerous") {
+    args.push("--dangerously-skip-permissions");
+  }
+
+  if (options.sessionId) {
+    args.push("--resume", options.sessionId);
+  }
+
+  if (options.debugFile) {
+    args.push("--debug-file", options.debugFile);
+  }
+
+  args.push("-p");
+  args.push("--output-format", "stream-json");
+  args.push("--verbose");
+  args.push("--include-hook-events");
+  args.push(options.prompt);
+
+  return args;
 }

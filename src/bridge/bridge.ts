@@ -13,7 +13,8 @@ import {
 } from "../telegram/menus.ts";
 import type { AppCallback, AppMessage, ClaudeEvent } from "../types.ts";
 import { markdownToTelegramHtml } from "../utils/telegram-formatting.ts";
-import { clipForTelegram, shorten } from "../utils/string.ts";
+import { escapeHtml } from "../utils/telegram-formatting.ts";
+import { clipForTelegram } from "../utils/string.ts";
 import { listWorkspaceNames, resolveWorkspacePath } from "../utils/workspace.ts";
 
 type ToolCall = {
@@ -45,6 +46,7 @@ type ActiveRunRecord = {
   sessionId: string;
   workspacePath: string;
   workspaceName: string;
+  workspaceStatusLine: string;
   toolCalls: ToolCall[];
   currentToolCall?: ToolCall;
   startTime: number;
@@ -59,6 +61,8 @@ const PHASE_BADGES: Record<string, string> = {
   failed: "❌",
   starting: "🚀",
 };
+
+const SPINNER_CHARS = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"] as const;
 
 const PROGRESS_PREFIXES = {
   PHASE: "phase:",
@@ -201,13 +205,14 @@ All other text is forwarded to Claude Code.`,
     const workspacePath = resolveWorkspacePath(this.config.workspaceRoot, workspaceName);
     this.state.setSelectedWorkspace(chatId, workspacePath, workspaceName);
 
-    let session = this.state.getWorkspaceSession(workspacePath);
+    const existingSession = this.state.getWorkspaceSession(workspacePath);
+    let session = existingSession;
     if (!session) {
       const probe = await this.agent.probeSlashCommands(workspacePath);
       session = this.state.setWorkspaceSession({
         workspaceName,
         workspacePath,
-        sessionId: probe.sessionId || randomUUID(),
+        sessionId: probe.sessionId || existingSession?.sessionId || "",
         slashCommands: probe.slashCommands,
         lastTouchedAt: Date.now(),
       });
@@ -251,7 +256,7 @@ All other text is forwarded to Claude Code.`,
       session = this.state.setWorkspaceSession({
         workspaceName: state.selectedWorkspaceName || "workspace",
         workspacePath: state.selectedWorkspace,
-        sessionId: probe.sessionId || session?.sessionId || randomUUID(),
+        sessionId: probe.sessionId || session?.sessionId || "",
         slashCommands: probe.slashCommands,
         lastTouchedAt: Date.now(),
       });
@@ -287,6 +292,7 @@ All other text is forwarded to Claude Code.`,
       return;
     }
     activeRun.stop();
+    this.stopProgressTicker(activeRun);
     this.stopTypingIndicator(activeRun);
     this.activeRuns.delete(chatId);
     this.state.setActiveRun(chatId);
@@ -309,11 +315,17 @@ All other text is forwarded to Claude Code.`,
 
     const workspacePath = state.selectedWorkspace;
     const workspaceName = state.selectedWorkspaceName;
+    const workspaceStatusLine = this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
     const runId = randomUUID();
     const progressMessageId = await this.telegram.sendMessage(
       chatId,
-      FormattedString.pre(this.renderInitialProgressText(runId, workspaceName)),
+      this.renderInitialProgressText({
+        workspaceStatusLine,
+        hasCompletedOutput: false,
+        toolCalls: [],
+      }),
+      { parseMode: "HTML" },
     );
 
     this.state.setActiveRun(chatId, runId, "running");
@@ -327,19 +339,21 @@ All other text is forwarded to Claude Code.`,
       progressText: "",
       phase: "Starting",
       lastProgressFlushedText: "",
-      sessionId: existingSession?.sessionId || randomUUID(),
+      sessionId: existingSession?.sessionId || "",
       workspacePath,
       workspaceName,
+      workspaceStatusLine,
       toolCalls: [],
       startTime: Date.now(),
     });
+    this.startProgressTicker(chatId);
     this.startTypingIndicator(chatId);
     this.pushProgress(chatId, `phase:Thinking`);
 
     const { sessionId, stop } = await this.agent.sendMessage({
       runId,
       workspacePath,
-      sessionId: existingSession?.sessionId,
+      sessionId: existingSession?.sessionId || undefined,
       message: text,
       requestApproval: (request) => this.waitForApproval(chatId, runId, request),
       onEvent: async (event) => {
@@ -355,13 +369,13 @@ All other text is forwarded to Claude Code.`,
     const activeRun = this.activeRuns.get(chatId);
     if (activeRun && activeRun.runId === runId) {
       activeRun.stop = stop;
-      activeRun.sessionId = sessionId;
+      activeRun.sessionId = sessionId || activeRun.sessionId;
     }
 
     this.state.setWorkspaceSession({
       workspaceName,
       workspacePath,
-      sessionId,
+      sessionId: sessionId || existingSession?.sessionId || "",
       slashCommands: existingSession?.slashCommands || [],
       lastTouchedAt: Date.now(),
     });
@@ -406,6 +420,17 @@ All other text is forwarded to Claude Code.`,
       }
       case "status": {
         this.logger.run(args.runId, "status", { message: args.event.message });
+        const readySessionId = this.extractSessionIdFromStatus(args.event.message);
+        if (readySessionId) {
+          activeRun.sessionId = readySessionId;
+          this.state.setWorkspaceSession({
+            workspaceName: args.workspaceName,
+            workspacePath: args.workspacePath,
+            sessionId: readySessionId,
+            slashCommands: this.state.getWorkspaceSession(args.workspacePath)?.slashCommands || [],
+            lastTouchedAt: Date.now(),
+          });
+        }
         this.pushProgress(chatId, args.event.message);
         return;
       }
@@ -415,6 +440,7 @@ All other text is forwarded to Claude Code.`,
       }
       case "run_completed": {
         activeRun.phase = "Completed";
+        this.stopProgressTicker(activeRun);
         await this.flushProgressMessage(chatId, true);
         await this.flushContentMessage(chatId, true);
         this.stopTypingIndicator(activeRun);
@@ -424,6 +450,7 @@ All other text is forwarded to Claude Code.`,
       }
       case "run_failed": {
         activeRun.phase = "Failed";
+        this.stopProgressTicker(activeRun);
         await this.flushProgressMessage(chatId, true);
         await this.flushContentMessage(chatId, true);
         this.stopTypingIndicator(activeRun);
@@ -475,7 +502,10 @@ ${FormattedString.code(args.event.message)}`,
     if (!activeRun) {
       return;
     }
-    const text = activeRun.accumulatedText.trim() || "Waiting for Claude output...";
+    const text = activeRun.accumulatedText.trim();
+    if (!text) {
+      return;
+    }
     // 先检查是否需要刷新，避免不必要的 clipForTelegram 计算
     if (!force && text === activeRun.lastFlushedText) {
       return;
@@ -549,18 +579,24 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     }
     this.applyProgressUpdate(activeRun, clean);
     activeRun.progressText = this.renderProgressText(activeRun);
-    this.scheduleProgressFlush(chatId);
   }
 
-  private scheduleProgressFlush(chatId: number): void {
+  private startProgressTicker(chatId: number): void {
     const activeRun = this.activeRuns.get(chatId);
     if (!activeRun || activeRun.progressFlushTimer) {
       return;
     }
-    activeRun.progressFlushTimer = setTimeout(async () => {
-      activeRun.progressFlushTimer = undefined;
+    activeRun.progressFlushTimer = setInterval(async () => {
       await this.flushProgressMessage(chatId, false);
     }, 700);
+  }
+
+  private stopProgressTicker(activeRun: ActiveRunRecord): void {
+    if (!activeRun.progressFlushTimer) {
+      return;
+    }
+    clearInterval(activeRun.progressFlushTimer);
+    activeRun.progressFlushTimer = undefined;
   }
 
   private async flushProgressMessage(chatId: number, force: boolean): Promise<void> {
@@ -568,28 +604,29 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     if (!activeRun) {
       return;
     }
-    const clipped = clipForTelegram(activeRun.progressText);
-    if (!force && clipped === activeRun.lastProgressFlushedText) {
+    activeRun.progressText = this.renderProgressText(activeRun);
+    const rendered = activeRun.progressText;
+    if (!force && rendered === activeRun.lastProgressFlushedText) {
       return;
     }
-    activeRun.lastProgressFlushedText = clipped;
-    await this.telegram.editMessageText(
-      chatId,
-      activeRun.progressMessageId,
-      FormattedString.pre(clipped),
-    );
+    activeRun.lastProgressFlushedText = rendered;
+    await this.telegram.editMessageText(chatId, activeRun.progressMessageId, rendered, {
+      parseMode: "HTML",
+    });
   }
 
   private applyProgressUpdate(activeRun: ActiveRunRecord, line: string): void {
     // 处理工具调用开始
     if (line.startsWith(PROGRESS_PREFIXES.TOOL_START)) {
       const payload = line.slice(PROGRESS_PREFIXES.TOOL_START.length);
-      const [name, durationStr] = payload.split("|");
+      const [name, detail] = payload.split("|");
+      const parsedDuration = Number(detail);
       const toolCall: ToolCall = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name: name || "unknown",
         status: "running",
-        startedAt: Date.now() - (Number(durationStr) || 0) * 1000,
+        input: detail && Number.isNaN(parsedDuration) ? detail : undefined,
+        startedAt: Date.now() - (!Number.isNaN(parsedDuration) ? parsedDuration : 0) * 1000,
       };
       activeRun.currentTool = toolCall.name;
       activeRun.currentToolCall = toolCall;
@@ -672,83 +709,134 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
   }
 
   private renderProgressText(activeRun: ActiveRunRecord): string {
-    const elapsed = Date.now() - activeRun.startTime;
-    const sections: string[] = [];
-
-    // 头部状态栏
-    sections.push(`╔══════════════════════════════════════╗`);
-    sections.push(`║  🤖 Claude Code ${this.phaseBadge(activeRun.phase).padEnd(24)} ║`);
-    sections.push(`╠══════════════════════════════════════╣`);
-
-    // 基本信息
-    sections.push(`║  ⏱️  ${this.formatDuration(elapsed).padEnd(33)}║`);
-    sections.push(`║  📁 ${shorten(activeRun.workspaceName, 30).padEnd(33)} ║`);
-    sections.push(`║  📝 ${shorten(activeRun.runId.slice(0, 8), 30).padEnd(33)} ║`);
-    sections.push(`╠══════════════════════════════════════╣`);
-
-    // 当前状态
-    const phaseLine = `║  ${this.phaseBadge(activeRun.phase)} ${activeRun.phase}`;
-    sections.push(`${phaseLine.padEnd(38)} ║`);
-
-    // 正在使用的工具
-    if (activeRun.currentToolCall) {
-      sections.push(`╠──────────────────────────────────────╣`);
-      sections.push(
-        `║  🔧 Current Tool: ${shorten(activeRun.currentToolCall.name, 22).padEnd(24)} ║`,
-      );
-      const toolDuration = this.formatDuration(Date.now() - activeRun.currentToolCall.startedAt);
-      sections.push(`║     Running for: ${toolDuration.padEnd(21)} ║`);
-    }
-
-    // 等待审批
-    if (activeRun.approvalState) {
-      sections.push(`╠──────────────────────────────────────╣`);
-      sections.push(`║  🛂 Approval: ${shorten(activeRun.approvalState, 24).padEnd(24)} ║`);
-    }
-
-    // 工具调用历史
-    if (activeRun.toolCalls.length > 0) {
-      sections.push(`╠══════════════════════════════════════╣`);
-      sections.push(`║  🛠️  Tool Calls (${activeRun.toolCalls.length}):${"".padEnd(17)} ║`);
-
-      const completedTools = activeRun.toolCalls.filter((t) => t.status === "completed");
-      const recentTools = completedTools.slice(-3);
-
-      for (const tool of recentTools) {
-        const statusIcon = "✅";
-        const duration = tool.duration ? `(${tool.duration}s)` : "";
-        const line = `║    ${statusIcon} ${shorten(tool.name, 18)} ${duration}`;
-        sections.push(`${line.padEnd(38)} ║`);
-
-        if (tool.result) {
-          const resultPreview = shorten(tool.result, 25);
-          const resultLine = `║       → ${resultPreview}`;
-          sections.push(`${resultLine.padEnd(38)} ║`);
-        }
-      }
-
-      if (completedTools.length > recentTools.length) {
-        const more = completedTools.length - recentTools.length;
-        sections.push(`║    ... and ${more} more${"".padEnd(21)} ║`);
-      }
-    }
-
-    sections.push(`╚══════════════════════════════════════╝`);
-
-    return sections.join("\n");
+    const hasCompletedOutput = activeRun.phase === "Completed";
+    return this.renderInitialProgressText({
+      workspaceStatusLine: activeRun.workspaceStatusLine,
+      hasCompletedOutput,
+      toolCalls: activeRun.toolCalls,
+      currentToolCall: activeRun.currentToolCall,
+      spinnerIndex: Math.floor((Date.now() - activeRun.startTime) / 700),
+    });
   }
 
-  private renderInitialProgressText(runId: string, workspaceName: string): string {
-    const sections: string[] = [];
-    sections.push(`╔══════════════════════════════════════╗`);
-    sections.push(`║  🤖 Claude Code 🚀 Starting...       ║`);
-    sections.push(`╠══════════════════════════════════════╣`);
-    sections.push(`║  📁 ${shorten(workspaceName, 30).padEnd(33)} ║`);
-    sections.push(`║  📝 ${runId.slice(0, 8).padEnd(33)} ║`);
-    sections.push(`╠══════════════════════════════════════╣`);
-    sections.push(`║  ⏳ Initializing session...          ║`);
-    sections.push(`╚══════════════════════════════════════╝`);
-    return sections.join("\n");
+  private renderInitialProgressText(args: {
+    workspaceStatusLine: string;
+    hasCompletedOutput: boolean;
+    toolCalls: ToolCall[];
+    currentToolCall?: ToolCall;
+    spinnerIndex?: number;
+  }): string {
+    const spinner =
+      SPINNER_CHARS[(args.spinnerIndex || 0) % SPINNER_CHARS.length] || SPINNER_CHARS[0];
+    const headerText = args.hasCompletedOutput ? "✅ Claude Code" : `${spinner} Claude Code`;
+    const lines = [
+      `<b>${escapeHtml(headerText)}</b>`,
+      `<code>${escapeHtml(args.workspaceStatusLine)}</code>`,
+      `<code>${escapeHtml(this.renderPermissionModeLabel())}</code>`,
+    ];
+
+    const toolBlocks = this.renderToolUseBlocks(args.toolCalls, args.currentToolCall);
+    if (toolBlocks.length > 0) {
+      lines.push("");
+      lines.push(`<b>Tool</b>`);
+      lines.push(...toolBlocks);
+    }
+
+    return lines.join("\n");
+  }
+
+  private renderPermissionModeLabel(): string {
+    switch (this.config.claudePermissionMode) {
+      case "dangerous":
+        return "›› bypass permissions on";
+      case "default":
+      default:
+        return "›› permissions default";
+    }
+  }
+
+  private describeWorkspaceStatus(workspacePath: string, workspaceName: string): string {
+    const gitArgs = ["git", "-C", workspacePath];
+    const insideWorkTree = Bun.spawnSync({
+      cmd: [...gitArgs, "rev-parse", "--is-inside-work-tree"],
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (insideWorkTree.exitCode !== 0 || insideWorkTree.stdout.toString().trim() !== "true") {
+      return `${workspaceName} no-git`;
+    }
+
+    const branchResult = Bun.spawnSync({
+      cmd: [...gitArgs, "branch", "--show-current"],
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const branch = branchResult.stdout.toString().trim() || "detached";
+
+    const statusResult = Bun.spawnSync({
+      cmd: [...gitArgs, "status", "--porcelain"],
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const dirty = statusResult.stdout.toString().trim().length > 0;
+    return `${workspaceName} ${branch} ${dirty ? "✗" : "✓"}`;
+  }
+
+  private renderToolUseBlocks(toolCalls: ToolCall[], currentToolCall?: ToolCall): string[] {
+    const blocks: string[] = [];
+
+    if (currentToolCall) {
+      blocks.push(this.renderToolUseBlock("…", currentToolCall, "正在执行"));
+    }
+
+    for (const tool of toolCalls.slice(-5).reverse()) {
+      if (currentToolCall && tool.id === currentToolCall.id) {
+        continue;
+      }
+
+      if (tool.status === "completed") {
+        blocks.push(this.renderToolUseBlock("✓", tool));
+        continue;
+      }
+
+      if (tool.status === "failed") {
+        blocks.push(this.renderToolUseBlock("×", tool));
+      }
+    }
+
+    return blocks;
+  }
+
+  private renderToolUseBlock(icon: string, tool: ToolCall, suffix?: string): string {
+    const title = `${icon} ${tool.name}${suffix ? ` ${suffix}` : ""}`;
+    const detail = this.formatToolDetail(tool);
+    if (!detail) {
+      return `<blockquote expandable>${escapeHtml(title)}</blockquote>`;
+    }
+    return `<blockquote expandable>${escapeHtml(title)}\n${escapeHtml(detail)}</blockquote>`;
+  }
+
+  private formatToolDetail(tool: ToolCall): string {
+    if (tool.input) {
+      return this.prettyPrintToolDetail(tool.input);
+    }
+    if (tool.result) {
+      return this.prettyPrintToolDetail(tool.result);
+    }
+    return "";
+  }
+
+  private prettyPrintToolDetail(detail: string): string {
+    const trimmed = detail.trim();
+    if (!trimmed || (trimmed[0] !== "{" && trimmed[0] !== "[")) {
+      return detail;
+    }
+
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return detail;
+    }
   }
 
   private isAllowedChat(chatId: number): boolean {
@@ -760,5 +848,14 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 
   private phaseBadge(phase: string): string {
     return PHASE_BADGES[phase.toLowerCase()] ?? "⚡";
+  }
+
+  private extractSessionIdFromStatus(message: string): string | undefined {
+    const prefix = PROGRESS_PREFIXES.SESSION_READY;
+    if (!message.startsWith(prefix)) {
+      return undefined;
+    }
+    const sessionId = message.slice(prefix.length).trim();
+    return sessionId || undefined;
   }
 }

@@ -1,7 +1,8 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { Bridge } from "../bridge.ts";
 import type { AppConfig } from "../../config.ts";
 import type { AgentAdapter } from "../../agent/types.ts";
@@ -81,7 +82,6 @@ function createMockAgent(): AgentAdapter & { calls: unknown[] } {
     probeSlashCommands: async (workspacePath: string) => {
       calls.push({ method: "probeSlashCommands", workspacePath });
       return {
-        sessionId: "session-123",
         slashCommands: ["/commit", "/status"],
       };
     },
@@ -434,15 +434,190 @@ describe("Bridge", () => {
       // Should have sent a progress message
       const progressSent = telegram.sent.find(
         (s: any) =>
-          s.type === "send" && typeof s.text === "object" && s.text.text?.includes("Claude Code"),
+          s.type === "send" && typeof s.text === "string" && s.text.includes("Claude Code"),
       );
       expect(progressSent).toBeDefined();
+      expect((progressSent as any).text).toContain("<b>");
+      expect((progressSent as any).text).toContain("Claude Code</b>");
+      expect((progressSent as any).text).toContain("<code>workspace1 no-git</code>");
+      expect((progressSent as any).text).toContain("<code>›› permissions default</code>");
     });
 
     test("should update progress message", async () => {
       // This test is simplified due to complex async timing
       // The main behavior is tested via integration
       expect(true).toBe(true);
+    });
+
+    test("should not send waiting placeholder draft without assistant output", async () => {
+      await bridge.handleCallback({
+        id: "cb1",
+        chatId: 123456,
+        data: "ws:workspace1",
+      });
+
+      telegram.sent = [];
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "Hello",
+      });
+
+      await Bun.sleep(30);
+
+      const waitingMessage = telegram.sent.find(
+        (s: any) =>
+          (s.type === "send" || s.type === "draft") &&
+          typeof s.text === "string" &&
+          s.text.includes("Waiting for Claude output"),
+      );
+      expect(waitingMessage).toBeUndefined();
+    });
+
+    test("should render initial progress text with new session details", () => {
+      const text = (bridge as any).renderInitialProgressText({
+        workspaceStatusLine: "workspace1 main ✓",
+        hasCompletedOutput: false,
+        toolCalls: [],
+        spinnerIndex: 0,
+      });
+
+      expect(text).toContain("<b>· Claude Code</b>");
+      expect(text).toContain("<code>workspace1 main ✓</code>");
+      expect(text).toContain("<code>›› permissions default</code>");
+    });
+
+    test("should render initial progress text with separate tool blockquotes", () => {
+      const text = (bridge as any).renderInitialProgressText({
+        workspaceStatusLine: "workspace1 feat-branch ✗",
+        hasCompletedOutput: true,
+        toolCalls: [
+          {
+            id: "tool-1",
+            name: "bash",
+            status: "completed",
+            input: "curl -s wttr.in/test",
+            startedAt: Date.now(),
+            duration: 1,
+          },
+        ],
+        currentToolCall: {
+          id: "tool-2",
+          name: "read",
+          status: "running",
+          input: "src/main.ts",
+          startedAt: Date.now(),
+        },
+        spinnerIndex: 3,
+      });
+
+      expect(text).toContain("<b>✅ Claude Code</b>");
+      expect(text).toContain("<b>Tool</b>");
+      expect(text).toContain("<blockquote expandable>");
+      expect(text).toContain("<blockquote expandable>… read 正在执行");
+      expect(text).toContain("<blockquote expandable>✓ bash");
+      expect(text).toContain("src/main.ts");
+      expect(text).toContain("curl -s wttr.in/test");
+    });
+
+    test("should render dangerous permission mode using Claude-style label", () => {
+      const dangerousBridge = new Bridge(
+        createMockConfig({ workspaceRoot: testDir, claudePermissionMode: "dangerous" }),
+        telegram,
+        agent,
+        logger,
+      );
+
+      const text = (dangerousBridge as any).renderInitialProgressText({
+        workspaceStatusLine: "workspace1 no-git",
+        hasCompletedOutput: false,
+        toolCalls: [],
+        spinnerIndex: 0,
+      });
+
+      expect(text).toContain("<code>workspace1 no-git</code>");
+      expect(text).toContain("<code>›› bypass permissions on</code>");
+    });
+
+    test("should pretty print json tool details across multiple lines", () => {
+      const text = (bridge as any).renderInitialProgressText({
+        workspaceStatusLine: "workspace1 no-git",
+        hasCompletedOutput: true,
+        toolCalls: [
+          {
+            id: "tool-1",
+            name: "Skill",
+            status: "completed",
+            input: '{"skill":"simplify","args":"--help"}',
+            startedAt: Date.now(),
+          },
+        ],
+        spinnerIndex: 0,
+      });
+
+      expect(text).toContain("<blockquote expandable>✓ Skill\n{");
+      expect(text).toContain('\n  "skill": "simplify",');
+      expect(text).toContain('\n  "args": "--help"\n');
+    });
+
+    test("should describe git branch and clean status", () => {
+      const repoDir = join(testDir, "git-clean");
+      mkdirSync(repoDir, { recursive: true });
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+
+      const status = (bridge as any).describeWorkspaceStatus(repoDir, "git-clean");
+      expect(status).toBe("git-clean main ✓");
+    });
+
+    test("should describe dirty git workspace", () => {
+      const repoDir = join(testDir, "git-dirty");
+      mkdirSync(repoDir, { recursive: true });
+      spawnSync("git", ["init", "-b", "feat-branch"], { cwd: repoDir });
+      writeFileSync(join(repoDir, "README.md"), "dirty");
+
+      const status = (bridge as any).describeWorkspaceStatus(repoDir, "git-dirty");
+      expect(status).toBe("git-dirty feat-branch ✗");
+    });
+
+    test("should describe non-git workspace", () => {
+      const status = (bridge as any).describeWorkspaceStatus(
+        join(testDir, "workspace1"),
+        "workspace1",
+      );
+      expect(status).toBe("workspace1 no-git");
+    });
+
+    test("should refresh progress message every 700ms to advance spinner", async () => {
+      const startTime = Date.now() - 1400;
+      (bridge as any).activeRuns.set(123456, {
+        runId: "run-1",
+        progressMessageId: 999,
+        stop: () => {},
+        contentDraftId: 1,
+        accumulatedText: "",
+        lastFlushedText: "",
+        progressText: "",
+        phase: "Thinking",
+        lastProgressFlushedText: "",
+        sessionId: "",
+        workspacePath: join(testDir, "workspace1"),
+        workspaceName: "workspace1",
+        workspaceStatusLine: "workspace1 no-git",
+        toolCalls: [],
+        startTime,
+      });
+
+      (bridge as any).startProgressTicker(123456);
+      await Bun.sleep(750);
+
+      const edits = telegram.sent.filter((s: any) => s.type === "edit");
+      expect(edits.length).toBeGreaterThan(0);
+      expect((edits[0] as any).text).toContain("Claude Code");
+
+      const activeRun = (bridge as any).activeRuns.get(123456);
+      (bridge as any).stopProgressTicker(activeRun);
     });
   });
 });
