@@ -73,7 +73,7 @@ const PHASE_BADGES: Record<string, string> = {
   starting: "🚀",
 };
 
-const SPINNER_CHARS = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"] as const;
+const SPINNER_CHARS = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
 
 const TOOL_STATUS_LABELS = {
   RUNNING: "正在执行",
@@ -245,9 +245,13 @@ All other text is forwarded to Claude Code.`,
 
   private async showStatus(chatId: number): Promise<void> {
     const state = this.state.getChatState(chatId);
+    const session = state.selectedWorkspace
+      ? this.state.getWorkspaceSession(state.selectedWorkspace)
+      : undefined;
     let message = fmt`📊 ${FormattedString.bold("CC-IM Status")}
 🧠 State: ${FormattedString.code(state.status)}
 📁 Workspace: ${FormattedString.code(state.selectedWorkspaceName || "not selected")}
+🧵 Session: ${FormattedString.code(session?.sessionId || "none")}
 🏃 Run: ${FormattedString.code(state.activeRunId || "idle")}`;
     if (state.pendingApproval) {
       message = fmt`${message}
@@ -323,9 +327,11 @@ All other text is forwarded to Claude Code.`,
       return;
     }
     if (state.activeRunId) {
+      // Queue the message instead of rejecting
+      state.messageQueue.push(text);
       await this.telegram.sendMessage(
         chatId,
-        "A run is already in progress. Use /stop or wait for it to finish.",
+        `⏳ Message queued (${state.messageQueue.length} in queue). Will process after current run completes.`,
       );
       return;
     }
@@ -463,6 +469,7 @@ All other text is forwarded to Claude Code.`,
         this.stopTypingIndicator(activeRun);
         this.state.setActiveRun(chatId);
         this.activeRuns.delete(chatId);
+        await this.processMessageQueue(chatId);
         return;
       }
       case "run_failed": {
@@ -478,6 +485,7 @@ ${FormattedString.code(args.event.message)}`,
         );
         this.state.setActiveRun(chatId);
         this.activeRuns.delete(chatId);
+        await this.processMessageQueue(chatId);
         return;
       }
     }
@@ -745,11 +753,14 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     currentToolCall?: ToolCall;
     spinnerIndex?: number;
   }): string {
-    const spinner =
+    const spinnerChar =
       SPINNER_CHARS[(args.spinnerIndex || 0) % SPINNER_CHARS.length] || SPINNER_CHARS[0];
-    const headerText = args.hasCompletedOutput ? "✅ Claude Code" : `${spinner} Claude Code`;
+    // Use a monospace spinner character to prevent text shifting
+    const headerText = args.hasCompletedOutput
+      ? "<b>✅ Claude Code</b>"
+      : `<b><code>${spinnerChar}</code> Claude Code</b>`;
     const lines = [
-      `<b>${escapeHtml(headerText)}</b>`,
+      headerText,
       `<code>${escapeHtml(args.workspaceStatusLine)}</code>`,
       `<code>${escapeHtml(this.renderPermissionModeLabel())}</code>`,
     ];
@@ -867,10 +878,21 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 
   private extractSessionIdFromStatus(message: string): string | undefined {
     const prefix = PROGRESS_PREFIXES.SESSION_READY;
-    if (!message.startsWith(prefix)) {
-      return undefined;
+    if (message.startsWith(prefix)) {
+      return message.slice(prefix.length).trim();
     }
-    const sessionId = message.slice(prefix.length).trim();
-    return sessionId || undefined;
+    return undefined;
+  }
+
+  private async processMessageQueue(chatId: number): Promise<void> {
+    const state = this.state.getChatState(chatId);
+    if (state.messageQueue.length === 0) {
+      return;
+    }
+    const nextMessage = state.messageQueue.shift();
+    if (nextMessage) {
+      await this.telegram.sendMessage(chatId, `▶️ Processing queued message...`);
+      await this.forwardToClaude(chatId, nextMessage);
+    }
   }
 }

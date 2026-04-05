@@ -21,6 +21,7 @@ export type ChatState = {
   activeRunId?: string;
   status: ChatStateStatus;
   pendingApproval?: PendingApproval;
+  messageQueue: string[];
 };
 
 export type PersistedChatSelection = {

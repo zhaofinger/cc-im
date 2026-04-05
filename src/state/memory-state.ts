@@ -19,10 +19,15 @@ export class MemoryState {
       this.chatState = this.loadSelection(chatId) || {
         chatId,
         status: "idle",
+        messageQueue: [],
       };
     }
     if (this.chatState.chatId !== chatId) {
       throw new Error("This build supports a single active chat only");
+    }
+    // Ensure messageQueue exists (for loaded states)
+    if (!this.chatState.messageQueue) {
+      this.chatState.messageQueue = [];
     }
     return this.chatState;
   }
@@ -87,6 +92,7 @@ export class MemoryState {
         selectedWorkspace: parsed.selectedWorkspace,
         selectedWorkspaceName: parsed.selectedWorkspaceName,
         status: "idle",
+        messageQueue: [],
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
