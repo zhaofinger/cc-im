@@ -200,8 +200,11 @@ export class CliAdapter implements AgentAdapter {
 
 /**
  * 移除 ANSI 转义序列
+ * 支持颜色码、光标移动、清除屏幕等多种 ANSI 序列
  */
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex
-  return text.replace(/\u001b\[\d+m/g, "");
+  const ansiPattern =
+    /\u001b\[[\d;]*[a-zA-Z]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[()[\]{}<>=/]#\w+|\u001b[[\]()#;?]|[\u0000-\u001f\u007f-\u009f]/g;
+  return text.replace(ansiPattern, "");
 }
