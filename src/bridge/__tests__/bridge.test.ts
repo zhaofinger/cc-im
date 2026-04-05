@@ -562,27 +562,27 @@ describe("Bridge", () => {
       expect(text).toContain('\n  "args": "--help"\n');
     });
 
-    test("should describe git branch and clean status", () => {
+    test("should describe git branch and clean status", async () => {
       const repoDir = join(testDir, "git-clean");
       mkdirSync(repoDir, { recursive: true });
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
 
-      const status = (bridge as any).describeWorkspaceStatus(repoDir, "git-clean");
+      const status = await (bridge as any).describeWorkspaceStatus(repoDir, "git-clean");
       expect(status).toBe("git-clean main ✓");
     });
 
-    test("should describe dirty git workspace", () => {
+    test("should describe dirty git workspace", async () => {
       const repoDir = join(testDir, "git-dirty");
       mkdirSync(repoDir, { recursive: true });
       spawnSync("git", ["init", "-b", "feat-branch"], { cwd: repoDir });
       writeFileSync(join(repoDir, "README.md"), "dirty");
 
-      const status = (bridge as any).describeWorkspaceStatus(repoDir, "git-dirty");
+      const status = await (bridge as any).describeWorkspaceStatus(repoDir, "git-dirty");
       expect(status).toBe("git-dirty feat-branch ✗");
     });
 
-    test("should describe non-git workspace", () => {
-      const status = (bridge as any).describeWorkspaceStatus(
+    test("should describe non-git workspace", async () => {
+      const status = await (bridge as any).describeWorkspaceStatus(
         join(testDir, "workspace1"),
         "workspace1",
       );

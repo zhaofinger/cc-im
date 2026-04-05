@@ -2,26 +2,33 @@ export function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Use STX (\u0002) and ETX (\u0003) control characters as markers because:
+// 1. They are extremely unlikely to appear in normal Markdown text
+// 2. They are single characters, making the regex patterns more efficient
+// 3. They have distinct start/end meanings (STX = Start of Text, ETX = End of Text)
+const MARKER_STX = "\u0002";
+const MARKER_ETX = "\u0003";
+const CODE_BLOCK_MARKER = `${MARKER_STX}CCIMCB`;
+const INLINE_CODE_MARKER = `${MARKER_ETX}CCIMIC`;
+
 export function markdownToTelegramHtml(md: string): string {
-  const codeBlockMarker = "\u0002CCIMCODEBLOCK";
-  const inlineCodeMarker = "\u0003CCIMINLINECODE";
   const codeBlocks: string[] = [];
   let text = md.replace(/```[\s\S]*?```/g, (match) => {
     const code = match.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
     codeBlocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
-    return `${codeBlockMarker}${codeBlocks.length - 1}\u0002`;
+    return `${CODE_BLOCK_MARKER}${codeBlocks.length - 1}${MARKER_STX}`;
   });
 
   text = replaceMarkdownTables(text, (tableText) => {
     const listText = markdownTableToList(tableText);
     codeBlocks.push(`<pre><code>${escapeHtml(listText)}</code></pre>`);
-    return `${codeBlockMarker}${codeBlocks.length - 1}\u0002`;
+    return `${CODE_BLOCK_MARKER}${codeBlocks.length - 1}${MARKER_STX}`;
   });
 
   const inlineCodes: string[] = [];
   text = text.replace(/`([^`]+)`/g, (_, code: string) => {
     inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
-    return `${inlineCodeMarker}${inlineCodes.length - 1}\u0003`;
+    return `${INLINE_CODE_MARKER}${inlineCodes.length - 1}${MARKER_ETX}`;
   });
 
   text = escapeHtml(text);
@@ -32,8 +39,8 @@ export function markdownToTelegramHtml(md: string): string {
   text = text.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, "<i>$1</i>");
   text = text.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
 
-  text = text.replace(/\u0002CCIMCODEBLOCK(\d+)\u0002/g, (_, i) => codeBlocks[Number(i)] || "");
-  text = text.replace(/\u0003CCIMINLINECODE(\d+)\u0003/g, (_, i) => inlineCodes[Number(i)] || "");
+  text = text.replace(/\u0002CCIMCB(\d+)\u0002/g, (_, i) => codeBlocks[Number(i)] || "");
+  text = text.replace(/\u0003CCIMIC(\d+)\u0003/g, (_, i) => inlineCodes[Number(i)] || "");
   return text;
 }
 

@@ -9,6 +9,7 @@ import { ClaudeCliRunner } from "./claude-cli.ts";
 import { CodexCliRunner } from "./codex-cli.ts";
 import type { CliRunner } from "./cli-runner.ts";
 import type { AgentAdapter, CommandProbe } from "./types.ts";
+import { shorten } from "../utils/string.ts";
 
 type ClaudeStreamState = {
   toolUses: Map<string, string>;
@@ -407,7 +408,7 @@ function shortenStatusText(text: string): string {
   if (!singleLine) {
     return "done";
   }
-  return singleLine.slice(0, 120);
+  return shorten(singleLine, 120);
 }
 
 /**

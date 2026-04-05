@@ -17,6 +17,17 @@ import { escapeHtml } from "../utils/telegram-formatting.ts";
 import { clipForTelegram } from "../utils/string.ts";
 import { listWorkspaceNames, resolveWorkspacePath } from "../utils/workspace.ts";
 
+async function spawnAsync(cmd: string[]): Promise<{ exitCode: number; stdout: string }> {
+  const proc = Bun.spawn({
+    cmd,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+  return { exitCode, stdout };
+}
+
 type ToolCall = {
   id: string;
   name: string;
@@ -63,6 +74,12 @@ const PHASE_BADGES: Record<string, string> = {
 };
 
 const SPINNER_CHARS = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"] as const;
+
+const TOOL_STATUS_LABELS = {
+  RUNNING: "正在执行",
+  COMPLETED: "completed",
+  FAILED: "failed",
+} as const;
 
 const PROGRESS_PREFIXES = {
   PHASE: "phase:",
@@ -315,7 +332,7 @@ All other text is forwarded to Claude Code.`,
 
     const workspacePath = state.selectedWorkspace;
     const workspaceName = state.selectedWorkspaceName;
-    const workspaceStatusLine = this.describeWorkspaceStatus(workspacePath, workspaceName);
+    const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
     const runId = randomUUID();
     const progressMessageId = await this.telegram.sendMessage(
@@ -604,13 +621,15 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     if (!activeRun) {
       return;
     }
-    activeRun.progressText = this.renderProgressText(activeRun);
-    const rendered = activeRun.progressText;
-    if (!force && rendered === activeRun.lastProgressFlushedText) {
+    // Re-render progress text
+    const newProgressText = this.renderProgressText(activeRun);
+    // Only update if forced or text changed
+    if (!force && newProgressText === activeRun.lastProgressFlushedText) {
       return;
     }
-    activeRun.lastProgressFlushedText = rendered;
-    await this.telegram.editMessageText(chatId, activeRun.progressMessageId, rendered, {
+    activeRun.progressText = newProgressText;
+    activeRun.lastProgressFlushedText = newProgressText;
+    await this.telegram.editMessageText(chatId, activeRun.progressMessageId, newProgressText, {
       parseMode: "HTML",
     });
   }
@@ -755,30 +774,26 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     }
   }
 
-  private describeWorkspaceStatus(workspacePath: string, workspaceName: string): string {
+  private async describeWorkspaceStatus(
+    workspacePath: string,
+    workspaceName: string,
+  ): Promise<string> {
     const gitArgs = ["git", "-C", workspacePath];
-    const insideWorkTree = Bun.spawnSync({
-      cmd: [...gitArgs, "rev-parse", "--is-inside-work-tree"],
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (insideWorkTree.exitCode !== 0 || insideWorkTree.stdout.toString().trim() !== "true") {
+
+    // Check if we're in a git repo
+    const insideWorkTree = await spawnAsync([...gitArgs, "rev-parse", "--is-inside-work-tree"]);
+    if (insideWorkTree.exitCode !== 0 || insideWorkTree.stdout.trim() !== "true") {
       return `${workspaceName} no-git`;
     }
 
-    const branchResult = Bun.spawnSync({
-      cmd: [...gitArgs, "branch", "--show-current"],
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const branch = branchResult.stdout.toString().trim() || "detached";
+    // Run branch and status in parallel
+    const [branchResult, statusResult] = await Promise.all([
+      spawnAsync([...gitArgs, "branch", "--show-current"]),
+      spawnAsync([...gitArgs, "status", "--porcelain"]),
+    ]);
 
-    const statusResult = Bun.spawnSync({
-      cmd: [...gitArgs, "status", "--porcelain"],
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const dirty = statusResult.stdout.toString().trim().length > 0;
+    const branch = branchResult.stdout.trim() || "detached";
+    const dirty = statusResult.stdout.trim().length > 0;
     return `${workspaceName} ${branch} ${dirty ? "✗" : "✓"}`;
   }
 
@@ -786,7 +801,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     const blocks: string[] = [];
 
     if (currentToolCall) {
-      blocks.push(this.renderToolUseBlock("…", currentToolCall, "正在执行"));
+      blocks.push(this.renderToolUseBlock("…", currentToolCall, TOOL_STATUS_LABELS.RUNNING));
     }
 
     for (const tool of toolCalls.slice(-5).reverse()) {
