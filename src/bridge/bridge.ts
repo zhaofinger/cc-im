@@ -75,6 +75,8 @@ const PHASE_BADGES: Record<string, string> = {
 
 const SPINNER_CHARS = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"] as const;
 
+const TOOL_SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"] as const;
+
 const TOOL_STATUS_LABELS = {
   RUNNING: "正在执行",
   COMPLETED: "completed",
@@ -737,12 +739,14 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 
   private renderProgressText(activeRun: ActiveRunRecord): string {
     const hasCompletedOutput = activeRun.phase === "Completed";
+    const elapsed = Date.now() - activeRun.startTime;
     return this.renderInitialProgressText({
       workspaceStatusLine: activeRun.workspaceStatusLine,
       hasCompletedOutput,
       toolCalls: activeRun.toolCalls,
       currentToolCall: activeRun.currentToolCall,
-      spinnerIndex: Math.floor((Date.now() - activeRun.startTime) / 700),
+      spinnerIndex: Math.floor(elapsed / 700),
+      toolSpinnerIndex: Math.floor(elapsed / 120),
     });
   }
 
@@ -752,6 +756,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     toolCalls: ToolCall[];
     currentToolCall?: ToolCall;
     spinnerIndex?: number;
+    toolSpinnerIndex?: number;
   }): string {
     const spinnerChar =
       SPINNER_CHARS[(args.spinnerIndex || 0) % SPINNER_CHARS.length] || SPINNER_CHARS[0];
@@ -764,7 +769,14 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
       `<code>${escapeHtml(this.renderPermissionModeLabel())}</code>`,
     ];
 
-    const toolBlocks = this.renderToolUseBlocks(args.toolCalls, args.currentToolCall);
+    const toolSpinnerChar =
+      TOOL_SPINNER_CHARS[(args.toolSpinnerIndex || 0) % TOOL_SPINNER_CHARS.length] ||
+      TOOL_SPINNER_CHARS[0];
+    const toolBlocks = this.renderToolUseBlocks(
+      args.toolCalls,
+      args.currentToolCall,
+      toolSpinnerChar,
+    );
     if (toolBlocks.length > 0) {
       lines.push("");
       lines.push(`<b>Tool</b>`);
@@ -807,11 +819,16 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     return `${workspaceName} ${branch} ${dirty ? "✗" : "✓"}`;
   }
 
-  private renderToolUseBlocks(toolCalls: ToolCall[], currentToolCall?: ToolCall): string[] {
+  private renderToolUseBlocks(
+    toolCalls: ToolCall[],
+    currentToolCall?: ToolCall,
+    runningSpinner?: string,
+  ): string[] {
     const blocks: string[] = [];
 
     if (currentToolCall) {
-      blocks.push(this.renderToolUseBlock("…", currentToolCall, TOOL_STATUS_LABELS.RUNNING));
+      const spinner = runningSpinner || "…";
+      blocks.push(this.renderToolUseBlock(spinner, currentToolCall, TOOL_STATUS_LABELS.RUNNING));
     }
 
     for (const tool of toolCalls.slice(-5).reverse()) {

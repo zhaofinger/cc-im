@@ -516,7 +516,7 @@ describe("Bridge", () => {
       expect(text).toContain("<b>✅ Claude Code</b>");
       expect(text).toContain("<b>Tool</b>");
       expect(text).toContain("<blockquote expandable>");
-      expect(text).toContain("<blockquote expandable>… read 正在执行");
+      expect(text).toContain("<blockquote expandable>⠋ read 正在执行");
       expect(text).toContain("<blockquote expandable>✓ bash");
       expect(text).toContain("src/main.ts");
       expect(text).toContain("curl -s wttr.in/test");
