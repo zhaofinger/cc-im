@@ -73,7 +73,7 @@ const PHASE_BADGES: Record<string, string> = {
   starting: "🚀",
 };
 
-const SPINNER_CHARS = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
+const SPINNER_CHARS = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"] as const;
 
 const TOOL_STATUS_LABELS = {
   RUNNING: "正在执行",
@@ -755,12 +755,9 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
   }): string {
     const spinnerChar =
       SPINNER_CHARS[(args.spinnerIndex || 0) % SPINNER_CHARS.length] || SPINNER_CHARS[0];
-    // Use a monospace spinner character to prevent text shifting
-    const headerText = args.hasCompletedOutput
-      ? "<b>✅ Claude Code</b>"
-      : `<b><code>${spinnerChar}</code> Claude Code</b>`;
+    const headerText = args.hasCompletedOutput ? "✅ Claude Code" : `${spinnerChar} Claude Code`;
     const lines = [
-      headerText,
+      `<b>${escapeHtml(headerText)}</b>`,
       `<code>${escapeHtml(args.workspaceStatusLine)}</code>`,
       `<code>${escapeHtml(this.renderPermissionModeLabel())}</code>`,
     ];
