@@ -746,7 +746,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
       toolCalls: activeRun.toolCalls,
       currentToolCall: activeRun.currentToolCall,
       spinnerIndex: Math.floor(elapsed / 700),
-      toolSpinnerIndex: Math.floor(elapsed / 500),
+      toolSpinnerIndex: Math.floor(elapsed / 700),
     });
   }
 
