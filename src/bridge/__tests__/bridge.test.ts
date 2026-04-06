@@ -484,7 +484,7 @@ describe("Bridge", () => {
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<b>· Claude Code</b>");
+      expect(text).toContain("<b><code>·</code> Claude Code</b>");
       expect(text).toContain("<code>workspace1 main ✓</code>");
       expect(text).toContain("<code>›› permissions default</code>");
     });

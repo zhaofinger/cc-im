@@ -755,9 +755,11 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
   }): string {
     const spinnerChar =
       SPINNER_CHARS[(args.spinnerIndex || 0) % SPINNER_CHARS.length] || SPINNER_CHARS[0];
-    const headerText = args.hasCompletedOutput ? "✅ Claude Code" : `${spinnerChar} Claude Code`;
+    const headerText = args.hasCompletedOutput
+      ? "<b>✅ Claude Code</b>"
+      : `<b><code>${spinnerChar}</code> Claude Code</b>`;
     const lines = [
-      `<b>${escapeHtml(headerText)}</b>`,
+      headerText,
       `<code>${escapeHtml(args.workspaceStatusLine)}</code>`,
       `<code>${escapeHtml(this.renderPermissionModeLabel())}</code>`,
     ];
