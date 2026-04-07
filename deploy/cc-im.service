@@ -1,0 +1,46 @@
+[Unit]
+Description=CC-IM Telegram Bot for Claude Code
+Documentation=https://github.com/zhaofinger/cc-im
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%USER%
+Group=%GROUP%
+
+# Working directory
+WorkingDirectory=%WORKDIR%
+
+# Environment
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$HOME/.bun/bin"
+Environment="HOME=%HOME%"
+
+# Load env file if exists
+EnvironmentFile=-%WORKDIR%/.env
+
+# Command to run
+ExecStart=%BUN_PATH% run src/main.ts
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Graceful shutdown
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logging
+StandardOutput=append:%LOGDIR%/app.log
+StandardError=append:%LOGDIR%/error.log
+SyslogIdentifier=cc-im
+
+# Security
+NoNewPrivileges=false
+ProtectSystem=no
+ProtectHome=no
+
+[Install]
+WantedBy=multi-user.target

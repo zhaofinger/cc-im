@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service identification -->
+    <key>Label</key>
+    <string>com.cc-im.app</string>
+
+    <!-- Run as user agent (not root) -->
+    <key>UserName</key>
+    <string>%USER%</string>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>%WORKDIR%</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:%HOME%/.bun/bin</string>
+        <key>HOME</key>
+        <string>%HOME%</string>
+    </dict>
+
+    <!-- Load env file -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>export $(cat %WORKDIR%/.env 2>/dev/null | xargs 2>/dev/null); exec %BUN_PATH% run src/main.ts</string>
+    </array>
+
+    <!-- Keep alive -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <!-- Restart policy -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <!-- Standard output/error -->
+    <key>StandardOutPath</key>
+    <string>%LOGDIR%/app.log</string>
+    <key>StandardErrorPath</key>
+    <string>%LOGDIR%/error.log</string>
+
+    <!-- Run at load -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Process type -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Low priority IO -->
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <!-- Nice value (lower priority) -->
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
