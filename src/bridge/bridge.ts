@@ -253,16 +253,43 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
     const session = state.selectedWorkspace
       ? this.state.getWorkspaceSession(state.selectedWorkspace)
       : undefined;
-    let message = fmt`📊 ${FormattedString.bold("CC-IM Status")}
-🧠 State: ${FormattedString.code(state.status)}
-📁 Workspace: ${FormattedString.code(state.selectedWorkspaceName || "not selected")}
-🧵 Session: ${FormattedString.code(session?.sessionId || "none")}
-🏃 Run: ${FormattedString.code(state.activeRunId || "idle")}`;
-    if (state.pendingApproval) {
-      message = fmt`${message}
-✅ Approval: ${FormattedString.code(state.pendingApproval.id)}`;
+
+    // Get workspace status line if workspace is selected
+    let workspaceStatusLine = "no workspace";
+    if (state.selectedWorkspace && state.selectedWorkspaceName) {
+      workspaceStatusLine = await this.describeWorkspaceStatus(
+        state.selectedWorkspace,
+        state.selectedWorkspaceName,
+      );
     }
-    await this.telegram.sendMessage(chatId, message);
+
+    const lines = [
+      "<b>📊 CC-IM Status</b>",
+      `<i>${escapeHtml(workspaceStatusLine)}</i>`,
+      `<i>${escapeHtml(this.renderPermissionModeLabel())}</i>`,
+    ];
+
+    if (state.status !== "idle" || state.activeRunId) {
+      lines.push("");
+      lines.push("<b>State</b>");
+      lines.push(`<blockquote>${state.status}</blockquote>`);
+    }
+
+    if (session?.sessionId) {
+      lines.push(`<code>${escapeHtml(session.sessionId)}</code>`);
+    }
+
+    if (state.activeRunId) {
+      lines.push("<b>Run</b>");
+      lines.push(`<blockquote>${escapeHtml(state.activeRunId)}</blockquote>`);
+    }
+
+    if (state.pendingApproval) {
+      lines.push("<b>Approval</b>");
+      lines.push(`<blockquote>${escapeHtml(state.pendingApproval.id)}</blockquote>`);
+    }
+
+    await this.telegram.sendMessage(chatId, lines.join("\n"), { parseMode: "HTML" });
   }
 
   private async showClaudeMenu(
@@ -776,6 +803,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
       currentToolCall: activeRun.currentToolCall,
       spinnerIndex: Math.floor(elapsed / 700),
       toolSpinnerIndex: Math.floor(elapsed / 700),
+      sessionId: activeRun.sessionId,
     });
   }
 
@@ -786,6 +814,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     currentToolCall?: ToolCall;
     spinnerIndex?: number;
     toolSpinnerIndex?: number;
+    sessionId?: string;
   }): string {
     const spinnerChar =
       SPINNER_CHARS[(args.spinnerIndex || 0) % SPINNER_CHARS.length] || SPINNER_CHARS[0];
@@ -794,9 +823,13 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
       : `<b><code>${spinnerChar}</code> Claude Code</b>`;
     const lines = [
       headerText,
-      `<code>${escapeHtml(args.workspaceStatusLine)}</code>`,
-      `<code>${escapeHtml(this.renderPermissionModeLabel())}</code>`,
+      `<i>${escapeHtml(args.workspaceStatusLine)}</i>`,
+      `<i>${escapeHtml(this.renderPermissionModeLabel())}</i>`,
     ];
+
+    if (args.sessionId) {
+      lines.push(`<code>${escapeHtml(args.sessionId)}</code>`);
+    }
 
     const toolSpinnerChar =
       TOOL_SPINNER_CHARS[(args.toolSpinnerIndex || 0) % TOOL_SPINNER_CHARS.length] ||

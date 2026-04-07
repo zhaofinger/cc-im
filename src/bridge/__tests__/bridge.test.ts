@@ -145,22 +145,25 @@ describe("Bridge", () => {
         | { commands: { command: string; description: string }[] }
         | undefined;
       expect(commandsCall).toBeDefined();
-      expect(commandsCall!.commands).toContainEqual({ command: "start", description: "Show help" });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "start",
+        description: "ℹ️ Show help",
+      });
       expect(commandsCall!.commands).toContainEqual({
         command: "workspace",
-        description: "Choose a workspace",
+        description: "📁 Choose a workspace",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "status",
-        description: "Show current status",
+        description: "📊 Show current status",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "stop",
-        description: "Stop the active run",
+        description: "⏹️ Stop the active run",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "cc",
-        description: "Open Claude command menu",
+        description: "🤖 Open Claude command menu",
       });
     });
   });
@@ -438,8 +441,8 @@ describe("Bridge", () => {
       expect(progressSent).toBeDefined();
       expect((progressSent as any).text).toContain("<b>");
       expect((progressSent as any).text).toContain("Claude Code</b>");
-      expect((progressSent as any).text).toContain("<code>workspace1 no-git</code>");
-      expect((progressSent as any).text).toContain("<code>›› bypass permissions on</code>");
+      expect((progressSent as any).text).toContain("workspace1 no-git");
+      expect((progressSent as any).text).toContain("›› bypass permissions on");
     });
 
     test("should update progress message", async () => {
@@ -484,8 +487,8 @@ describe("Bridge", () => {
       });
 
       expect(text).toContain("<b><code>·</code> Claude Code</b>");
-      expect(text).toContain("<code>workspace1 main ✓</code>");
-      expect(text).toContain("<code>›› bypass permissions on</code>");
+      expect(text).toContain("workspace1 main ✓");
+      expect(text).toContain("›› bypass permissions on");
     });
 
     test("should render initial progress text with separate tool blockquotes", () => {
@@ -536,8 +539,8 @@ describe("Bridge", () => {
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<code>workspace1 no-git</code>");
-      expect(text).toContain("<code>›› bypass permissions on</code>");
+      expect(text).toContain("workspace1 no-git");
+      expect(text).toContain("›› bypass permissions on");
     });
 
     test("should pretty print json tool details across multiple lines", () => {

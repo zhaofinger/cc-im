@@ -74,7 +74,7 @@ export class CliAdapter implements AgentAdapter {
     }) => Promise<"approve" | "reject">;
     onEvent: (event: ClaudeEvent) => Promise<void> | void;
   }): Promise<{ sessionId: string; stop: () => void }> {
-    const sessionId = options.sessionId || "";
+    const existingSessionId = options.sessionId || "";
     const debugFile = `${this.config.logDir}/${options.runId}.cli-debug.log`;
 
     // 始终使用 dangerous 模式，让审批逻辑在应用层处理
@@ -84,7 +84,7 @@ export class CliAdapter implements AgentAdapter {
 
     this.logger.run(options.runId, "cli query started", {
       workspacePath: options.workspacePath,
-      sessionId,
+      sessionId: existingSessionId,
       provider: this.runner.name,
       mode,
     });
@@ -92,17 +92,22 @@ export class CliAdapter implements AgentAdapter {
     const session = this.runner.run({
       cwd: options.workspacePath,
       prompt: options.message,
-      sessionId,
+      sessionId: existingSessionId,
       mode,
       env: {}, // CLI 从环境变量读取配置
       debugFile,
     });
 
-    // 启动流式处理
-    this.processOutput(options.runId, sessionId, session, options.onEvent);
+    // 启动流式处理并等待 session ID
+    const resolvedSessionId = await this.processOutput(
+      options.runId,
+      existingSessionId,
+      session,
+      options.onEvent,
+    );
 
     return {
-      sessionId,
+      sessionId: resolvedSessionId,
       stop: () => {
         this.logger.run(options.runId, "cli stop requested", {});
         session.kill();
@@ -112,15 +117,27 @@ export class CliAdapter implements AgentAdapter {
 
   private async processOutput(
     runId: string,
-    sessionId: string,
+    existingSessionId: string,
     session: { stdout: ReadableStream; stderr: ReadableStream; exited: Promise<number> },
     onEvent: (event: ClaudeEvent) => Promise<void> | void,
-  ): Promise<void> {
+  ): Promise<string> {
     const streamState = createClaudeStreamState();
+    let resolvedSessionId = existingSessionId;
+
+    // 包装 onEvent 以捕获 session ID
+    const wrappedOnEvent = async (event: ClaudeEvent): Promise<void> => {
+      if (event.type === "status" && event.message.startsWith("Claude session ready:")) {
+        const extractedId = event.message.slice("Claude session ready:".length).trim();
+        if (extractedId && extractedId !== "unknown") {
+          resolvedSessionId = extractedId;
+        }
+      }
+      await onEvent(event);
+    };
 
     // 并行处理 stdout 和 stderr
-    const stdoutTask = this.readStream(runId, session.stdout, onEvent, false, streamState);
-    const stderrTask = this.readStream(runId, session.stderr, onEvent, true, streamState);
+    const stdoutTask = this.readStream(runId, session.stdout, wrappedOnEvent, false, streamState);
+    const stderrTask = this.readStream(runId, session.stderr, wrappedOnEvent, true, streamState);
 
     // 等待进程结束
     const [exitCode] = await Promise.all([session.exited, stdoutTask, stderrTask]);
@@ -128,13 +145,15 @@ export class CliAdapter implements AgentAdapter {
     this.logger.run(runId, "cli process exited", { exitCode });
 
     if (exitCode === 0) {
-      await onEvent({ type: "run_completed", sessionId });
+      await wrappedOnEvent({ type: "run_completed", sessionId: resolvedSessionId });
     } else {
-      await onEvent({
+      await wrappedOnEvent({
         type: "run_failed",
         message: `CLI exited with code ${exitCode}`,
       });
     }
+
+    return resolvedSessionId;
   }
 
   private async readStream(
