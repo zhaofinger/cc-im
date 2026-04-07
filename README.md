@@ -162,17 +162,6 @@ Status includes:
 
 ---
 
----
-
-## 🔒 Security
-
-- **Single Chat Restriction**: Use `TELEGRAM_ALLOWED_CHAT_ID` to restrict bot access
-- **Approval Flow**: Sensitive operations require explicit approval
-- **Workspace Isolation**: Each workspace has its own Claude session
-- **No Persistent State**: In-memory only (resets on restart for security)
-
----
-
 ## 🛠️ Development
 
 ```bash
