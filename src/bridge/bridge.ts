@@ -808,7 +808,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     );
     if (toolBlocks.length > 0) {
       lines.push("");
-      lines.push(`<b>🔧 Tool</b>`);
+      lines.push(`<b>Tool</b>`);
       lines.push(...toolBlocks);
     }
 
@@ -817,7 +817,8 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 
   private renderPermissionModeLabel(): string {
     // Always runs in dangerous mode (--dangerously-skip-permissions)
-    return "⚠️ ›› bypass permissions on";
+    // See TODO comments about implementing interactive approval modes
+    return "›› bypass permissions on";
   }
 
   private async describeWorkspaceStatus(
@@ -829,7 +830,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     // Check if we're in a git repo
     const insideWorkTree = await spawnAsync([...gitArgs, "rev-parse", "--is-inside-work-tree"]);
     if (insideWorkTree.exitCode !== 0 || insideWorkTree.stdout.trim() !== "true") {
-      return `📁 ${workspaceName} no-git`;
+      return `${workspaceName} no-git`;
     }
 
     // Run branch and status in parallel
@@ -840,7 +841,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
 
     const branch = branchResult.stdout.trim() || "detached";
     const dirty = statusResult.stdout.trim().length > 0;
-    return `📁 ${workspaceName} ${branch} ${dirty ? "✗" : "✓"}`;
+    return `${workspaceName} ${branch} ${dirty ? "✗" : "✓"}`;
   }
 
   private renderToolUseBlocks(
@@ -874,28 +875,12 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
   }
 
   private renderToolUseBlock(icon: string, tool: ToolCall, suffix?: string): string {
-    const toolEmoji = this.getToolEmoji(tool.name);
-    const title = `${icon} ${toolEmoji} ${tool.name}${suffix ? ` ${suffix}` : ""}`;
+    const title = `${icon} ${tool.name}${suffix ? ` ${suffix}` : ""}`;
     const detail = this.formatToolDetail(tool);
     if (!detail) {
       return `<blockquote expandable>${escapeHtml(title)}</blockquote>`;
     }
     return `<blockquote expandable>${escapeHtml(title)}\n${escapeHtml(detail)}</blockquote>`;
-  }
-
-  private getToolEmoji(toolName: string | undefined): string {
-    if (!toolName) return "🔧";
-    const name = toolName.toLowerCase();
-    if (name.includes("read") || name.includes("file")) return "📄";
-    if (name.includes("write") || name.includes("edit")) return "✏️";
-    if (name.includes("bash") || name.includes("shell") || name.includes("exec")) return "💻";
-    if (name.includes("search") || name.includes("web")) return "🔍";
-    if (name.includes("git")) return "🌿";
-    if (name.includes("test")) return "🧪";
-    if (name.includes("build") || name.includes("compile")) return "🔨";
-    if (name.includes("docker") || name.includes("container")) return "🐳";
-    if (name.includes("npm") || name.includes("yarn") || name.includes("pnpm")) return "📦";
-    return "🔧";
   }
 
   private formatToolDetail(tool: ToolCall): string {
