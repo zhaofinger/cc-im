@@ -111,12 +111,20 @@ install_linux() {
     SERVICE_FILE="$SERVICE_DIR/$SERVICE_NAME.service"
     log_info "Creating service file: $SERVICE_FILE"
 
+    # Set target based on user vs system install
+    if [[ "$USE_USER" == true ]]; then
+        TARGET="default.target"
+    else
+        TARGET="multi-user.target"
+    fi
+
     sed -e "s|%USER%|$USER_NAME|g" \
         -e "s|%GROUP%|$GROUP_NAME|g" \
         -e "s|%WORKDIR%|$PROJECT_DIR|g" \
         -e "s|%HOME%|$HOME_DIR|g" \
         -e "s|%BUN_PATH%|$BUN_PATH|g" \
         -e "s|%LOGDIR%|$LOG_DIR|g" \
+        -e "s|%TARGET%|$TARGET|g" \
         "$SCRIPT_DIR/cc-im.service" > "$SERVICE_FILE"
 
     # Reload systemd
@@ -177,12 +185,35 @@ install_macos() {
     fi
 
     # Load the service
+    log_info "Loading service..."
     if [[ "$USE_SUDO" == true ]]; then
-        sudo launchctl load -w "$PLIST_FILE" 2>/dev/null || true
+        if ! sudo launchctl bootstrap system "$PLIST_FILE" 2>/dev/null; then
+            # Fallback to older load method
+            if ! sudo launchctl load -w "$PLIST_FILE" 2>/dev/null; then
+                log_error "Failed to load service. Checking plist validity..."
+                if ! plutil -lint "$PLIST_FILE" &>/dev/null; then
+                    log_error "Plist file has syntax errors"
+                    plutil -lint "$PLIST_FILE"
+                fi
+                exit 1
+            fi
+        fi
+        log_success "System service loaded"
         log_info "To start the service, run:"
         echo "  sudo launchctl start com.cc-im.app"
     else
-        launchctl load -w "$PLIST_FILE" 2>/dev/null || true
+        if ! launchctl bootstrap gui/$(id -u) "$PLIST_FILE" 2>/dev/null; then
+            # Fallback to older load method
+            if ! launchctl load -w "$PLIST_FILE" 2>/dev/null; then
+                log_error "Failed to load service. Checking plist validity..."
+                if ! plutil -lint "$PLIST_FILE" &>/dev/null; then
+                    log_error "Plist file has syntax errors"
+                    plutil -lint "$PLIST_FILE"
+                fi
+                exit 1
+            fi
+        fi
+        log_success "User service loaded"
         log_info "To start the service, run:"
         echo "  launchctl start com.cc-im.app"
     fi
@@ -219,26 +250,54 @@ uninstall_service() {
     if [[ "$OS" == "linux" ]]; then
         if [[ $EUID -eq 0 ]]; then
             SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+            log_info "Stopping and disabling system service..."
             systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+            systemctl disable "$SERVICE_NAME" 2>/dev/null || true
             rm -f "$SERVICE_FILE"
             systemctl daemon-reload
         else
             SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME.service"
+            log_info "Stopping and disabling user service..."
             systemctl --user stop "$SERVICE_NAME" 2>/dev/null || true
+            systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
             rm -f "$SERVICE_FILE"
             systemctl --user daemon-reload
         fi
         log_success "Linux service uninstalled"
 
     elif [[ "$OS" == "macos" ]]; then
+        log_info "Unloading and removing macOS service..."
         if [[ $EUID -eq 0 ]]; then
             PLIST_FILE="/Library/LaunchDaemons/com.cc-im.app.plist"
-            launchctl stop com.cc-im.app 2>/dev/null || true
+            # Bootout system service (newer macOS)
+            if ! sudo launchctl bootout system/com.cc-im.app 2>/dev/null; then
+                # Fallback: unload and stop
+                sudo launchctl unload -w "$PLIST_FILE" 2>/dev/null || true
+                sudo launchctl stop com.cc-im.app 2>/dev/null || true
+            fi
             sudo rm -f "$PLIST_FILE"
+            # Verify removal
+            if sudo launchctl print system/com.cc-im.app &>/dev/null; then
+                log_warn "Service may still be registered. You may need to restart."
+            else
+                log_info "Service successfully removed from launchd"
+            fi
         else
             PLIST_FILE="$HOME/Library/LaunchAgents/com.cc-im.app.plist"
-            launchctl stop com.cc-im.app 2>/dev/null || true
+            USER_ID=$(id -u)
+            # Bootout user service (newer macOS)
+            if ! launchctl bootout gui/$USER_ID/com.cc-im.app 2>/dev/null; then
+                # Fallback: unload and stop
+                launchctl unload -w "$PLIST_FILE" 2>/dev/null || true
+                launchctl stop com.cc-im.app 2>/dev/null || true
+            fi
             rm -f "$PLIST_FILE"
+            # Verify removal
+            if launchctl print gui/$USER_ID/com.cc-im.app &>/dev/null; then
+                log_warn "Service may still be registered. You may need to log out and back in."
+            else
+                log_info "Service successfully removed from launchd"
+            fi
         fi
         log_success "macOS service uninstalled"
     fi

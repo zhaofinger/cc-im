@@ -13,10 +13,10 @@ Group=%GROUP%
 WorkingDirectory=%WORKDIR%
 
 # Environment
-Environment="PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$HOME/.bun/bin"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:%HOME%/.bun/bin"
 Environment="HOME=%HOME%"
 
-# Load env file if exists
+# Load env file if exists (systemd will fail silently if file doesn't exist due to the - prefix)
 EnvironmentFile=-%WORKDIR%/.env
 
 # Command to run
@@ -37,10 +37,13 @@ StandardOutput=append:%LOGDIR%/app.log
 StandardError=append:%LOGDIR%/error.log
 SyslogIdentifier=cc-im
 
-# Security
+# Security - relaxed for user services
 NoNewPrivileges=false
 ProtectSystem=no
 ProtectHome=no
 
 [Install]
-WantedBy=multi-user.target
+# Target is set by install script based on user vs system install
+# User install: default.target
+# System install: multi-user.target
+WantedBy=%TARGET%

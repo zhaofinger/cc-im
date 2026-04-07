@@ -23,12 +23,12 @@
         <string>%HOME%</string>
     </dict>
 
-    <!-- Load env file -->
+    <!-- Program to run - Bun will auto-load .env from WorkingDirectory -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/sh</string>
-        <string>-c</string>
-        <string>export $(cat %WORKDIR%/.env 2>/dev/null | xargs 2>/dev/null); exec %BUN_PATH% run src/main.ts</string>
+        <string>%BUN_PATH%</string>
+        <string>run</string>
+        <string>src/main.ts</string>
     </array>
 
     <!-- Keep alive -->
