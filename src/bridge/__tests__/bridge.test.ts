@@ -145,22 +145,25 @@ describe("Bridge", () => {
         | { commands: { command: string; description: string }[] }
         | undefined;
       expect(commandsCall).toBeDefined();
-      expect(commandsCall!.commands).toContainEqual({ command: "start", description: "Show help" });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "start",
+        description: "ℹ️ Show help",
+      });
       expect(commandsCall!.commands).toContainEqual({
         command: "workspace",
-        description: "Choose a workspace",
+        description: "📁 Choose a workspace",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "status",
-        description: "Show current status",
+        description: "📊 Show current status",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "stop",
-        description: "Stop the active run",
+        description: "⏹️ Stop the active run",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "cc",
-        description: "Open Claude command menu",
+        description: "🤖 Open Claude command menu",
       });
     });
   });
@@ -438,8 +441,8 @@ describe("Bridge", () => {
       expect(progressSent).toBeDefined();
       expect((progressSent as any).text).toContain("<b>");
       expect((progressSent as any).text).toContain("Claude Code</b>");
-      expect((progressSent as any).text).toContain("<code>workspace1 no-git</code>");
-      expect((progressSent as any).text).toContain("<code>›› bypass permissions on</code>");
+      expect((progressSent as any).text).toContain("<code>📁 workspace1 no-git</code>");
+      expect((progressSent as any).text).toContain("<code>⚠️ ›› bypass permissions on</code>");
     });
 
     test("should update progress message", async () => {
@@ -477,20 +480,20 @@ describe("Bridge", () => {
 
     test("should render initial progress text with new session details", () => {
       const text = (bridge as any).renderInitialProgressText({
-        workspaceStatusLine: "workspace1 main ✓",
+        workspaceStatusLine: "📁 workspace1 main ✓",
         hasCompletedOutput: false,
         toolCalls: [],
         spinnerIndex: 0,
       });
 
       expect(text).toContain("<b><code>·</code> Claude Code</b>");
-      expect(text).toContain("<code>workspace1 main ✓</code>");
-      expect(text).toContain("<code>›› bypass permissions on</code>");
+      expect(text).toContain("<code>📁 workspace1 main ✓</code>");
+      expect(text).toContain("<code>⚠️ ›› bypass permissions on</code>");
     });
 
     test("should render initial progress text with separate tool blockquotes", () => {
       const text = (bridge as any).renderInitialProgressText({
-        workspaceStatusLine: "workspace1 feat-branch ✗",
+        workspaceStatusLine: "📁 workspace1 feat-branch ✗",
         hasCompletedOutput: true,
         toolCalls: [
           {
@@ -513,10 +516,10 @@ describe("Bridge", () => {
       });
 
       expect(text).toContain("<b>✅ Claude Code</b>");
-      expect(text).toContain("<b>Tool</b>");
+      expect(text).toContain("<b>🔧 Tool</b>");
       expect(text).toContain("<blockquote expandable>");
-      expect(text).toContain("<blockquote expandable>⠋ read 正在执行");
-      expect(text).toContain("<blockquote expandable>✓ bash");
+      expect(text).toContain("<blockquote expandable>⠋ 📄 read 正在执行");
+      expect(text).toContain("<blockquote expandable>✓ 💻 bash");
       expect(text).toContain("src/main.ts");
       expect(text).toContain("curl -s wttr.in/test");
     });
@@ -530,19 +533,19 @@ describe("Bridge", () => {
       );
 
       const text = (dangerousBridge as any).renderInitialProgressText({
-        workspaceStatusLine: "workspace1 no-git",
+        workspaceStatusLine: "📁 workspace1 no-git",
         hasCompletedOutput: false,
         toolCalls: [],
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<code>workspace1 no-git</code>");
-      expect(text).toContain("<code>›› bypass permissions on</code>");
+      expect(text).toContain("<code>📁 workspace1 no-git</code>");
+      expect(text).toContain("<code>⚠️ ›› bypass permissions on</code>");
     });
 
     test("should pretty print json tool details across multiple lines", () => {
       const text = (bridge as any).renderInitialProgressText({
-        workspaceStatusLine: "workspace1 no-git",
+        workspaceStatusLine: "📁 workspace1 no-git",
         hasCompletedOutput: true,
         toolCalls: [
           {
@@ -556,7 +559,7 @@ describe("Bridge", () => {
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<blockquote expandable>✓ Skill\n{");
+      expect(text).toContain("<blockquote expandable>✓ 🔧 Skill\n{");
       expect(text).toContain('\n  "skill": "simplify",');
       expect(text).toContain('\n  "args": "--help"\n');
     });
@@ -567,7 +570,7 @@ describe("Bridge", () => {
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
 
       const status = await (bridge as any).describeWorkspaceStatus(repoDir, "git-clean");
-      expect(status).toBe("git-clean main ✓");
+      expect(status).toBe("📁 git-clean main ✓");
     });
 
     test("should describe dirty git workspace", async () => {
@@ -577,7 +580,7 @@ describe("Bridge", () => {
       writeFileSync(join(repoDir, "README.md"), "dirty");
 
       const status = await (bridge as any).describeWorkspaceStatus(repoDir, "git-dirty");
-      expect(status).toBe("git-dirty feat-branch ✗");
+      expect(status).toBe("📁 git-dirty feat-branch ✗");
     });
 
     test("should describe non-git workspace", async () => {
@@ -585,7 +588,7 @@ describe("Bridge", () => {
         join(testDir, "workspace1"),
         "workspace1",
       );
-      expect(status).toBe("workspace1 no-git");
+      expect(status).toBe("📁 workspace1 no-git");
     });
 
     test("should refresh progress message every 700ms to advance spinner", async () => {
