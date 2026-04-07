@@ -149,7 +149,7 @@ setup_env() {
     while [[ -z "$TELEGRAM_BOT_TOKEN" ]]; do
         log_prompt "Enter your Telegram Bot Token (required):"
         echo "  💡 Get it from @BotFather: https://t.me/botfather"
-        read -r TELEGRAM_BOT_TOKEN
+        read -r TELEGRAM_BOT_TOKEN < /dev/tty
         if [[ -z "$TELEGRAM_BOT_TOKEN" ]]; then
             log_error "Telegram Bot Token is required"
         fi
@@ -161,7 +161,7 @@ setup_env() {
     while [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; do
         log_prompt "Enter your Telegram Chat ID (required):"
         echo "  💡 Use @userinfobot to get your chat ID"
-        read -r TELEGRAM_ALLOWED_CHAT_ID
+        read -r TELEGRAM_ALLOWED_CHAT_ID < /dev/tty
         if [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; then
             log_error "Telegram Chat ID is required"
         fi
@@ -171,7 +171,7 @@ setup_env() {
     echo ""
     log_prompt "Enter workspace root directory (default: /code_workspace):"
     echo "  💡 This directory should contain your code projects"
-    read -r WORKSPACE_ROOT
+    read -r WORKSPACE_ROOT < /dev/tty
     WORKSPACE_ROOT=${WORKSPACE_ROOT:-/code_workspace}
 
     # Create workspace if not exists
@@ -183,7 +183,7 @@ setup_env() {
     # Optional: Log Directory
     echo ""
     log_prompt "Enter log directory (default: $INSTALL_DIR/logs):"
-    read -r LOG_DIR
+    read -r LOG_DIR < /dev/tty
     LOG_DIR=${LOG_DIR:-$INSTALL_DIR/logs}
 
     # Create .env file
@@ -366,7 +366,7 @@ main() {
     echo ""
 
     log_prompt "Press Enter to continue or Ctrl+C to cancel..."
-    read -r
+    read -r < /dev/tty
 
     echo ""
     check_git
