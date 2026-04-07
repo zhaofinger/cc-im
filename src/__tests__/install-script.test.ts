@@ -67,4 +67,19 @@ describe("install.sh", () => {
     expect(contents).toContain(`WORKSPACE_ROOT=${workspaceRoot}`);
     expect(contents).toContain(`LOG_DIR=${logDir}`);
   });
+
+  test("runs main when executed from stdin", () => {
+    const homeDir = join(tempDir, "home");
+    const result = Bun.spawnSync({
+      cmd: ["bash", "-lc", `HOME="${homeDir}" CC_IM_INSTALL_NONINTERACTIVE=1 bash < "${scriptPath}"`],
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+      },
+    });
+
+    const output = `${result.stdout.toString()}\n${result.stderr.toString()}`;
+    expect(output).toContain("This script will:");
+    expect(output).toContain("Continuing immediately");
+  });
 });

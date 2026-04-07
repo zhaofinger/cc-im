@@ -23,19 +23,11 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_prompt() { echo -e "${CYAN}[INPUT]${NC} $1"; }
 
-has_prompt_tty() {
-    if [[ "${CC_IM_INSTALL_NONINTERACTIVE:-0}" == "1" ]]; then
-        return 1
-    fi
-
-    [[ -r /dev/tty ]]
-}
-
 read_user_input() {
     local __var_name="$1"
     local __input=""
 
-    if has_prompt_tty; then
+    if [[ "${CC_IM_INSTALL_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 1 ]] && [[ -r /dev/tty ]]; then
         if IFS= read -r __input < /dev/tty; then
             printf -v "$__var_name" '%s' "$__input"
             return 0
@@ -470,6 +462,6 @@ main() {
     fi
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if [[ ${#BASH_SOURCE[@]} -eq 0 || "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 fi
