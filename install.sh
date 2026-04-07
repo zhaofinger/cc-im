@@ -23,6 +23,68 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_prompt() { echo -e "${CYAN}[INPUT]${NC} $1"; }
 
+has_prompt_tty() {
+    if [[ "${CC_IM_INSTALL_NONINTERACTIVE:-0}" == "1" ]]; then
+        return 1
+    fi
+
+    [[ -r /dev/tty ]]
+}
+
+read_user_input() {
+    local __var_name="$1"
+    local __input=""
+
+    if has_prompt_tty; then
+        if IFS= read -r __input < /dev/tty; then
+            printf -v "$__var_name" '%s' "$__input"
+            return 0
+        fi
+    fi
+
+    if [[ -t 0 ]]; then
+        if IFS= read -r __input; then
+            printf -v "$__var_name" '%s' "$__input"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+require_interactive_input() {
+    local __var_name="$1"
+    local __label="$2"
+
+    if read_user_input "$__var_name"; then
+        return 0
+    fi
+
+    log_error "Unable to read ${__label} interactively."
+    log_info "Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID before running install.sh in non-interactive mode."
+    exit 1
+}
+
+read_optional_input() {
+    local __var_name="$1"
+    local __default_value="$2"
+
+    if read_user_input "$__var_name"; then
+        return 0
+    fi
+
+    printf -v "$__var_name" '%s' "$__default_value"
+}
+
+wait_for_confirmation() {
+    local _confirmation=""
+
+    log_prompt "Press Enter to continue or Ctrl+C to cancel..."
+    if ! read_user_input _confirmation; then
+        log_warn "Interactive confirmation unavailable. Continuing immediately."
+    fi
+}
+
 print_banner() {
     echo ""
     echo "╔══════════════════════════════════════════╗"
@@ -145,11 +207,11 @@ setup_env() {
     echo ""
 
     # Required: Telegram Bot Token
-    local TELEGRAM_BOT_TOKEN=""
+    local TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
     while [[ -z "$TELEGRAM_BOT_TOKEN" ]]; do
         log_prompt "Enter your Telegram Bot Token (required):"
         echo "  💡 Get it from @BotFather: https://t.me/botfather"
-        read -r TELEGRAM_BOT_TOKEN < /dev/tty
+        require_interactive_input TELEGRAM_BOT_TOKEN "Telegram Bot Token"
         if [[ -z "$TELEGRAM_BOT_TOKEN" ]]; then
             log_error "Telegram Bot Token is required"
         fi
@@ -157,11 +219,11 @@ setup_env() {
 
     # Required: Allowed Chat ID
     echo ""
-    local TELEGRAM_ALLOWED_CHAT_ID=""
+    local TELEGRAM_ALLOWED_CHAT_ID="${TELEGRAM_ALLOWED_CHAT_ID:-}"
     while [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; do
         log_prompt "Enter your Telegram Chat ID (required):"
         echo "  💡 Use @userinfobot to get your chat ID"
-        read -r TELEGRAM_ALLOWED_CHAT_ID < /dev/tty
+        require_interactive_input TELEGRAM_ALLOWED_CHAT_ID "Telegram Chat ID"
         if [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; then
             log_error "Telegram Chat ID is required"
         fi
@@ -171,7 +233,8 @@ setup_env() {
     echo ""
     log_prompt "Enter workspace root directory (default: /code_workspace):"
     echo "  💡 This directory should contain your code projects"
-    read -r WORKSPACE_ROOT < /dev/tty
+    local WORKSPACE_ROOT="${WORKSPACE_ROOT:-}"
+    read_optional_input WORKSPACE_ROOT "${WORKSPACE_ROOT:-/code_workspace}"
     WORKSPACE_ROOT=${WORKSPACE_ROOT:-/code_workspace}
 
     # Create workspace if not exists
@@ -183,7 +246,8 @@ setup_env() {
     # Optional: Log Directory
     echo ""
     log_prompt "Enter log directory (default: $INSTALL_DIR/logs):"
-    read -r LOG_DIR < /dev/tty
+    local LOG_DIR="${LOG_DIR:-}"
+    read_optional_input LOG_DIR "${LOG_DIR:-$INSTALL_DIR/logs}"
     LOG_DIR=${LOG_DIR:-$INSTALL_DIR/logs}
 
     # Create .env file
@@ -365,8 +429,7 @@ main() {
     echo "  6. Install as a background service"
     echo ""
 
-    log_prompt "Press Enter to continue or Ctrl+C to cancel..."
-    read -r < /dev/tty
+    wait_for_confirmation
 
     echo ""
     check_git
@@ -407,4 +470,6 @@ main() {
     fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

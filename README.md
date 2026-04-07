@@ -48,6 +48,8 @@ This will automatically:
 - **Install as a background service** (systemd on Linux, launchd on macOS)
 - Create a `cc-im` command for service management
 
+If your shell cannot provide an interactive TTY, the installer now skips the initial "Press Enter" confirmation automatically. For fully non-interactive installs, pre-set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_ID` before running the command.
+
 After installation, use these commands:
 
 ```bash
