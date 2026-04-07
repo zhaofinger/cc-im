@@ -42,6 +42,5 @@ export async function runStartupChecks(args: {
   logger.info("startup check passed: agent cli", {
     provider: config.agentProvider,
     installed: true,
-    permissionMode: config.claudePermissionMode,
   });
 }

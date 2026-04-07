@@ -371,7 +371,14 @@ main() {
     log_info "View logs:"
     echo "  tail -f $LOG_DIR/app.log"
     echo ""
-    log_info "For more commands, see: make help"
+    log_info "For more commands, see: cc-im --help"
+    echo ""
+    log_info "Quick commands:"
+    echo "  cc-im start    - Start the service"
+    echo "  cc-im stop     - Stop the service"
+    echo "  cc-im restart  - Restart the service"
+    echo "  cc-im status   - Check service status"
+    echo "  cc-im logs     - View logs"
 }
 
 main "$@"

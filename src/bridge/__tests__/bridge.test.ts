@@ -16,12 +16,11 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   mkdirSync(testDir, { recursive: true });
   return {
     telegramBotToken: "test-token",
+    telegramAllowedChatId: 123456,
     workspaceRoot: testDir,
     logDir: join(testDir, "logs"),
     agentProvider: "claude",
-    claudePermissionMode: "default",
     claudeCommandsPageSize: 8,
-    telegramAllowedChatId: undefined, // Allow all chats
     ...overrides,
   };
 }
@@ -440,7 +439,7 @@ describe("Bridge", () => {
       expect((progressSent as any).text).toContain("<b>");
       expect((progressSent as any).text).toContain("Claude Code</b>");
       expect((progressSent as any).text).toContain("<code>workspace1 no-git</code>");
-      expect((progressSent as any).text).toContain("<code>›› permissions default</code>");
+      expect((progressSent as any).text).toContain("<code>›› bypass permissions on</code>");
     });
 
     test("should update progress message", async () => {
@@ -486,7 +485,7 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b><code>·</code> Claude Code</b>");
       expect(text).toContain("<code>workspace1 main ✓</code>");
-      expect(text).toContain("<code>›› permissions default</code>");
+      expect(text).toContain("<code>›› bypass permissions on</code>");
     });
 
     test("should render initial progress text with separate tool blockquotes", () => {
@@ -522,9 +521,9 @@ describe("Bridge", () => {
       expect(text).toContain("curl -s wttr.in/test");
     });
 
-    test("should render dangerous permission mode using Claude-style label", () => {
+    test("should render permission mode label", () => {
       const dangerousBridge = new Bridge(
-        createMockConfig({ workspaceRoot: testDir, claudePermissionMode: "dangerous" }),
+        createMockConfig({ workspaceRoot: testDir }),
         telegram,
         agent,
         logger,

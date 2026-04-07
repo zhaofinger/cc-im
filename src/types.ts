@@ -14,6 +14,14 @@ export type AppCallback = {
 
 export type ChatStateStatus = "idle" | "running" | "awaiting_approval";
 
+// TODO: Implement interactive approval modes
+// Currently only dangerous mode (--dangerously-skip-permissions) is supported
+// To implement approval modes, need to:
+// 1. Parse permission_denials from stream-json output
+// 2. Forward to Telegram for user approval
+// 3. Resume or cancel the operation based on user response
+// See discussion: https://github.com/anthropics/claude-code/issues/xxx
+
 export type ChatState = {
   chatId: number;
   selectedWorkspace?: string;

@@ -112,10 +112,10 @@ describe("Claude stream-json parsing", () => {
     const adapter = new CliAdapter(
       {
         telegramBotToken: "test-token",
+        telegramAllowedChatId: 123456789,
         workspaceRoot: "/workspace",
         logDir: "./logs",
         agentProvider: "claude",
-        claudePermissionMode: "default",
         claudeCommandsPageSize: 8,
       } satisfies AppConfig,
       logger,

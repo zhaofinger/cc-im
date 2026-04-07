@@ -67,6 +67,7 @@ export class CliAdapter implements AgentAdapter {
     workspacePath: string;
     sessionId?: string;
     message: string;
+    dangerouslySkipPermissions?: boolean;
     requestApproval?: (request: {
       approvalId: string;
       summary: string;
@@ -76,11 +77,10 @@ export class CliAdapter implements AgentAdapter {
     const sessionId = options.sessionId || "";
     const debugFile = `${this.config.logDir}/${options.runId}.cli-debug.log`;
 
-    // 危险模式下不使用审批（简化实现）
-    // 如果 requestApproval 存在，理论上应该用交互模式
-    // 但为了简化，我们先统一用 dangerous 模式
-    const mode: "dangerous" | "interactive" =
-      this.config.claudePermissionMode === "dangerous" ? "dangerous" : "interactive";
+    // 始终使用 dangerous 模式，让审批逻辑在应用层处理
+    // 避免 Claude Code 显示交互式提示导致进程挂起
+    // TODO: 实现真正的交互式提示处理（stdin 交互）
+    const mode: "dangerous" | "interactive" = "dangerous";
 
     this.logger.run(options.runId, "cli query started", {
       workspacePath: options.workspacePath,

@@ -42,26 +42,3 @@ export interface CliRunner {
    */
   probeSlashCommands(workspacePath: string): Promise<string[]>;
 }
-
-/**
- * 生成 CLI 环境变量
- */
-export function buildCliEnv(config: {
-  claudeCodeOauthToken?: string;
-  anthropicApiKey?: string;
-  claudeModel?: string;
-}): Record<string, string> {
-  const env: Record<string, string> = {};
-
-  if (config.claudeCodeOauthToken) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = config.claudeCodeOauthToken;
-  }
-  if (config.anthropicApiKey) {
-    env.ANTHROPIC_API_KEY = config.anthropicApiKey;
-  }
-  if (config.claudeModel) {
-    env.ANTHROPIC_MODEL = config.claudeModel;
-  }
-
-  return env;
-}

@@ -5,11 +5,6 @@ export type CommandProbe = {
   slashCommands: string[];
 };
 
-export type ActiveRun = {
-  runId: string;
-  stop: () => void;
-};
-
 export interface AgentAdapter {
   probeSlashCommands(workspacePath: string): Promise<CommandProbe>;
   sendMessage(options: {
@@ -17,6 +12,7 @@ export interface AgentAdapter {
     workspacePath: string;
     sessionId?: string;
     message: string;
+    dangerouslySkipPermissions?: boolean;
     requestApproval?: (request: {
       approvalId: string;
       summary: string;

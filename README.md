@@ -26,16 +26,49 @@ A Telegram bridge for Claude Code, built with Bun + TypeScript. Control Claude C
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) installed
-- Telegram Bot Token (get from [@BotFather](https://t.me/botfather))
-- Claude Code installed and authenticated
+Before installation, you need:
 
-### Installation
+- **Telegram Bot Token** - Get from [@BotFather](https://t.me/botfather)
+- **Claude Code** - Installed and authenticated ([Installation Guide](https://github.com/anthropics/claude-code))
+
+### One-Line Install (Recommended)
+
+The fastest way to get started:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | bash
+```
+
+This will automatically:
+
+- Install bun (if not present)
+- Clone the repository to `~/.cc-im`
+- Guide you through configuration
+- Install dependencies
+- **Install as a background service** (systemd on Linux, launchd on macOS)
+- Create a `cc-im` command for service management
+
+After installation, use these commands:
+
+```bash
+cc-im start    # Start the service
+cc-im stop     # Stop the service
+cc-im restart  # Restart the service
+cc-im status   # Check service status
+cc-im logs     # View logs
+```
+
+### Manual Installation
+
+If you prefer to install manually:
 
 ```bash
 # Clone the repository
-git clone https://github.com/zhaofinger/cc-im.git
-cd cc-im
+git clone https://github.com/zhaofinger/cc-im.git ~/.cc-im
+cd ~/.cc-im
+
+# Install bun (if not installed)
+# See: https://bun.sh
 
 # Install dependencies
 bun install
@@ -44,8 +77,28 @@ bun install
 cp .env.example .env
 # Edit .env with your configuration
 
-# Start the bot
+# Install as background service
+bash deploy/install-service.sh --user
+
+# Or start manually
 bun run start
+```
+
+### Service Management
+
+For manually installed services, use:
+
+```bash
+# Control the service
+cc-im start      # Start service (after install)
+cc-im stop       # Stop service
+cc-im restart    # Restart service
+cc-im status     # Check status
+cc-im logs       # View logs
+
+# Or use system commands directly
+systemctl --user start cc-im    # Linux
+launchctl start com.cc-im.app   # macOS
 ```
 
 ---
@@ -57,33 +110,23 @@ Copy `.env.example` to `.env` and configure:
 | Variable                    | Required | Description                                                       |
 | --------------------------- | -------- | ----------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`        | ✅       | Your Telegram bot token from @BotFather                           |
-| `TELEGRAM_ALLOWED_CHAT_ID`  | ❌       | Restrict bot to specific chat (recommended)                       |
+| `TELEGRAM_ALLOWED_CHAT_ID`  | ✅       | Restrict bot to your chat only (get from @userinfobot)            |
 | `WORKSPACE_ROOT`            | ❌       | Root directory containing workspaces (default: `/code_workspace`) |
-| `LOG_DIR`                   | ❌       | Log directory (default: `./logs`)                                 |
-| `CLAUDE_MODEL`              | ❌       | Override default Claude model                                     |
-| `CLAUDE_PERMISSION_MODE`    | ❌       | Permission mode (default: `default`)                              |
+| `LOG_DIR`                   | ❌       | Log directory (default: `./cc_im_logs`)                           |
+| `AGENT_PROVIDER`            | ❌       | CLI tool to use: `claude` or `codex` (default: `claude`)          |
 | `CLAUDE_COMMANDS_PAGE_SIZE` | ❌       | Commands per page in /cc menu (default: `8`)                      |
-
-### Optional Anthropic Configuration
-
-| Variable                  | Description                                     |
-| ------------------------- | ----------------------------------------------- |
-| `ANTHROPIC_API_KEY`       | Direct API key authentication                   |
-| `ANTHROPIC_BASE_URL`      | Custom API endpoint (for third-party providers) |
-| `ANTHROPIC_AUTH_TOKEN`    | Auth token for custom endpoints                 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token                         |
 
 ---
 
 ## 📱 Commands
 
-| Command      | Description                                 |
-| ------------ | ------------------------------------------- |
-| `/start`     | Show help message                           |
-| `/workspace` | Select a workspace from the configured root |
-| `/status`    | Display current status and active run       |
-| `/stop`      | Stop the current Claude run                 |
-| `/cc`        | Open the Claude slash command menu          |
+| Command      | Description                |
+| ------------ | -------------------------- |
+| `/start`     | Show help                  |
+| `/workspace` | Choose a workspace         |
+| `/status`    | Show current status        |
+| `/stop`      | Stop the active run        |
+| `/cc`        | Show Claude slash commands |
 
 Any other text or commands are forwarded directly to Claude Code in the selected workspace.
 
@@ -91,25 +134,33 @@ Any other text or commands are forwarded directly to Claude Code in the selected
 
 ## 📊 Status Display
 
-The bot displays beautiful box-style status messages showing:
+The bot displays real-time status using HTML formatting:
 
 ```
-╔══════════════════════════════════════╗
-║  🤖 Claude Code 🔧 Using tool        ║
-╠══════════════════════════════════════╣
-║  ⏱️  45s                             ║
-║  📁 my-project                       ║
-║  📝 a1b2c3d8                         ║
-╠══════════════════════════════════════╣
-║  🔧 Current Tool: Read File          ║
-║     Running for: 5s                  ║
-╠══════════════════════════════════════╣
-║  🛠️  Tool Calls (3):                 ║
-║    ✅ Read File (2s)                 ║
-║       → file content preview...      ║
-║    ✅ Bash Command (1s)              ║
-╚══════════════════════════════════════╝
+<b>· Claude Code</b>
+<code>my-project main ✓</code>
+<code>›› permissions default</code>
+
+<b>Tool</b>
+<blockquote expandable>⠋ Read File 正在执行</blockquote>
 ```
+
+Status includes:
+
+- Spinner indicator while running, checkmark when completed
+- Current workspace, git branch, and dirty status
+- Permission mode indicator
+- Tool call history with expandable details
+
+---
+
+## 🔒 Security
+
+- **Single Chat Restriction**: Use `TELEGRAM_ALLOWED_CHAT_ID` to restrict bot access
+- **Workspace Isolation**: Each workspace has its own Claude session
+- **Dangerous Mode**: This bot uses `--dangerously-skip-permissions` which means Claude Code will execute all operations without asking for approval. Use with caution.
+
+---
 
 ---
 
@@ -131,8 +182,8 @@ bun run dev
 # Run tests
 bun test
 
-# Build
-bun build
+# Type check and lint
+bun run check
 ```
 
 ---

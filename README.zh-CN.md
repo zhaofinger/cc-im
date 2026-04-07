@@ -30,16 +30,49 @@ Claude Code 的 Telegram 桥接器，使用 Bun + TypeScript 构建。通过 Tel
 
 ### 前置要求
 
-- 安装 [Bun](https://bun.sh/)
-- Telegram Bot Token（从 [@BotFather](https://t.me/botfather) 获取）
-- 已安装并认证 Claude Code
+安装前需要准备：
 
-### 安装
+- **Telegram Bot Token** - 从 [@BotFather](https://t.me/botfather) 获取
+- **Claude Code** - 已安装并认证（[安装指南](https://github.com/anthropics/claude-code)）
+
+### 一行命令安装（推荐）
+
+最快的开始方式：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | bash
+```
+
+这将自动：
+
+- 安装 bun（如未安装）
+- 克隆仓库到 `~/.cc-im`
+- 引导配置
+- 安装依赖
+- **安装为后台服务**（Linux 用 systemd，macOS 用 launchd）
+- 创建 `cc-im` 命令管理服务
+
+安装完成后，使用以下命令：
+
+```bash
+cc-im start    # 启动服务
+cc-im stop     # 停止服务
+cc-im restart  # 重启服务
+cc-im status   # 查看状态
+cc-im logs     # 查看日志
+```
+
+### 手动安装
+
+如果你偏好手动安装：
 
 ```bash
 # 克隆仓库
-git clone https://github.com/zhaofinger/cc-im.git
-cd cc-im
+git clone https://github.com/zhaofinger/cc-im.git ~/.cc-im
+cd ~/.cc-im
+
+# 安装 bun（如未安装）
+# 参见：https://bun.sh
 
 # 安装依赖
 bun install
@@ -48,8 +81,28 @@ bun install
 cp .env.example .env
 # 编辑 .env 文件进行配置
 
-# 启动机器人
+# 安装为后台服务
+bash deploy/install-service.sh --user
+
+# 或直接前台启动
 bun run start
+```
+
+### 服务管理
+
+手动安装后，使用以下命令管理服务：
+
+```bash
+# 管理服务
+cc-im start      # 启动服务（安装后可用）
+cc-im stop       # 停止服务
+cc-im restart    # 重启服务
+cc-im status     # 查看状态
+cc-im logs       # 查看日志
+
+# 或直接执行系统命令
+systemctl --user start cc-im    # Linux
+launchctl start com.cc-im.app   # macOS
 ```
 
 ---
@@ -58,24 +111,16 @@ bun run start
 
 复制 `.env.example` 到 `.env` 并配置：
 
-| 变量名                      | 必填 | 说明                                          |
-| --------------------------- | ---- | --------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`        | ✅   | 从 @BotFather 获取的 Telegram 机器人令牌      |
-| `TELEGRAM_ALLOWED_CHAT_ID`  | ❌   | 限制特定聊天可使用（推荐）                    |
-| `WORKSPACE_ROOT`            | ❌   | 包含工作区的根目录（默认：`/code_workspace`） |
-| `LOG_DIR`                   | ❌   | 日志目录（默认：`./logs`）                    |
-| `CLAUDE_MODEL`              | ❌   | 覆盖默认 Claude 模型                          |
-| `CLAUDE_PERMISSION_MODE`    | ❌   | 权限模式（默认：`default`）                   |
-| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌   | /cc 菜单每页命令数（默认：`8`）               |
+| 变量名                      | 必填 | 说明                                                 |
+| --------------------------- | ---- | ---------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`        | ✅   | 从 @BotFather 获取的 Telegram 机器人令牌             |
+| `TELEGRAM_ALLOWED_CHAT_ID`  | ✅   | 从 @userinfobot 获取的 Chat ID，限制仅你的聊天可使用 |
+| `WORKSPACE_ROOT`            | ❌   | 包含工作区的根目录（默认：`/code_workspace`）        |
+| `LOG_DIR`                   | ❌   | 日志目录（默认：`./cc_im_logs`）                     |
+| `AGENT_PROVIDER`            | ❌   | 使用 CLI 工具：`claude` 或 `codex`（默认：`claude`） |
+| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌   | /cc 菜单每页命令数（默认：`8`）                      |
 
-### 可选的 Anthropic 配置
-
-| 变量名                    | 说明                            |
-| ------------------------- | ------------------------------- |
-| `ANTHROPIC_API_KEY`       | 直接 API 密钥认证               |
-| `ANTHROPIC_BASE_URL`      | 自定义 API 端点（第三方提供商） |
-| `ANTHROPIC_AUTH_TOKEN`    | 自定义端点的认证令牌            |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth 令牌          |
+---
 
 ---
 
@@ -95,25 +140,33 @@ bun run start
 
 ## 📊 状态显示
 
-机器人显示精美的盒式状态消息，展示：
+机器人使用 HTML 格式显示实时状态：
 
 ```
-╔══════════════════════════════════════╗
-║  🤖 Claude Code 🔧 Using tool        ║
-╠══════════════════════════════════════╣
-║  ⏱️  45s                             ║
-║  📁 my-project                       ║
-║  📝 a1b2c3d8                         ║
-╠══════════════════════════════════════╣
-║  🔧 当前工具: Read File              ║
-║     运行时长: 5s                     ║
-╠══════════════════════════════════════╣
-║  🛠️  工具调用 (3):                   ║
-║    ✅ Read File (2s)                 ║
-║       → 文件内容预览...              ║
-║    ✅ Bash Command (1s)              ║
-╚══════════════════════════════════════╝
+<b>· Claude Code</b>
+<code>my-project main ✓</code>
+<code>›› permissions default</code>
+
+<b>Tool</b>
+<blockquote expandable>⠋ Read File 正在执行</blockquote>
 ```
+
+状态包括：
+
+- 运行时显示旋转指示器，完成后显示对勾
+- 当前工作区、Git 分支和文件修改状态
+- 权限模式指示器
+- 可展开的工具调用历史
+
+---
+
+## 🔒 安全
+
+- **单聊限制**: 使用 `TELEGRAM_ALLOWED_CHAT_ID` 限制机器人访问
+- **工作区隔离**: 每个工作区有自己的 Claude 会话
+- **危险模式**: 此机器人使用 `--dangerously-skip-permissions`，意味着 Claude Code 将执行所有操作而不请求审批。请谨慎使用。
+
+---
 
 ---
 
@@ -135,8 +188,8 @@ bun run dev
 # 运行测试
 bun test
 
-# 构建
-bun build
+# 类型检查和代码检查
+bun run check
 ```
 
 ---

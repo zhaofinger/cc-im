@@ -1,6 +1,10 @@
 import { InlineKeyboard } from "grammy";
 import { chunk } from "../utils/array.ts";
 
+// TODO: Implement buildModeMenu when interactive approval modes are supported
+// Currently only dangerous mode (--dangerously-skip-permissions) is used
+// See types.ts for mode definitions: default | auto_edit | plan | dangerous
+
 export function buildWorkspaceMenu(workspaces: string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const row of chunk(workspaces, 2)) {

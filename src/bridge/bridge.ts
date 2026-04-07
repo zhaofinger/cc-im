@@ -111,11 +111,11 @@ export class Bridge {
 
   async setup(): Promise<void> {
     await this.telegram.setMyCommands([
-      { command: "start", description: "Show help" },
-      { command: "workspace", description: "Choose a workspace" },
-      { command: "status", description: "Show current status" },
-      { command: "stop", description: "Stop the active run" },
-      { command: "cc", description: "Open Claude command menu" },
+      { command: "start", description: "ℹ️ Show help" },
+      { command: "workspace", description: "📁 Choose a workspace" },
+      { command: "status", description: "📊 Show current status" },
+      { command: "stop", description: "⏹️ Stop the active run" },
+      { command: "cc", description: "🤖 Open Claude command menu" },
     ]);
   }
 
@@ -142,7 +142,9 @@ ${FormattedString.code("/status")} - show current status
 ${FormattedString.code("/stop")} - stop the current run
 ${FormattedString.code("/cc")} - show Claude slash commands
 
-All other text is forwarded to Claude Code.`,
+All other text is forwarded to Claude Code.
+
+Note: This bot uses --dangerously-skip-permissions mode.`,
       );
       return;
     }
@@ -205,6 +207,7 @@ All other text is forwarded to Claude Code.`,
 
     if (data.startsWith("reject:")) {
       await this.resolveApproval(chatId, data.slice(7), "reject");
+      return;
     }
   }
 
@@ -338,8 +341,21 @@ All other text is forwarded to Claude Code.`,
       return;
     }
 
-    const workspacePath = state.selectedWorkspace;
-    const workspaceName = state.selectedWorkspaceName;
+    // TODO: Implement interactive approval mode
+    // Currently always runs in dangerous mode (--dangerously-skip-permissions)
+    // To implement approval modes, need to:
+    // 1. Capture permission_denials from stream-json output
+    // 2. Forward to Telegram for user approval
+    // 3. Resume or cancel the operation based on user response
+    // See: https://github.com/anthropics/claude-code/issues/xxx
+
+    await this.executeClaudeRun(chatId, text, draftId);
+  }
+
+  private async executeClaudeRun(chatId: number, text: string, draftId?: number): Promise<void> {
+    const state = this.state.getChatState(chatId);
+    const workspacePath = state.selectedWorkspace!;
+    const workspaceName = state.selectedWorkspaceName!;
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
     const runId = randomUUID();
@@ -375,11 +391,18 @@ All other text is forwarded to Claude Code.`,
     this.startTypingIndicator(chatId);
     this.pushProgress(chatId, `phase:Thinking`);
 
+    // TODO: To implement approval modes:
+    // 1. Run Claude without --dangerously-skip-permissions
+    // 2. Parse permission_denials from stream-json output
+    // 3. Call waitForApproval when permission is needed
+    // 4. Currently always using dangerous mode for simplicity
+
     const { sessionId, stop } = await this.agent.sendMessage({
       runId,
       workspacePath,
       sessionId: existingSession?.sessionId || undefined,
       message: text,
+      dangerouslySkipPermissions: true,
       requestApproval: (request) => this.waitForApproval(chatId, runId, request),
       onEvent: async (event) => {
         await this.handleClaudeEvent(chatId, {
@@ -576,6 +599,12 @@ ${FormattedString.code(args.event.message)}`,
     runId: string,
     request: { approvalId: string; summary: string },
   ): Promise<"approve" | "reject"> {
+    // TODO: This method is not currently called because we use --dangerously-skip-permissions
+    // To implement approval modes, need to:
+    // 1. Run Claude without --dangerously-skip-permissions
+    // 2. Parse permission_denials from stream-json output
+    // 3. Call this method when permission is needed
+
     return await new Promise((resolve) => {
       this.state.setPendingApproval(chatId, {
         id: request.approvalId,
@@ -787,13 +816,9 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
   }
 
   private renderPermissionModeLabel(): string {
-    switch (this.config.claudePermissionMode) {
-      case "dangerous":
-        return "›› bypass permissions on";
-      case "default":
-      default:
-        return "›› permissions default";
-    }
+    // Always runs in dangerous mode (--dangerously-skip-permissions)
+    // See TODO comments about implementing interactive approval modes
+    return "›› bypass permissions on";
   }
 
   private async describeWorkspaceStatus(

@@ -23,7 +23,6 @@ async function main(): Promise<void> {
     workspaceRoot: config.workspaceRoot,
     allowedChatId: config.telegramAllowedChatId,
     agentProvider: config.agentProvider,
-    permissionMode: config.claudePermissionMode,
   });
 
   telegram.bot.on("message:text", async (ctx) => {

@@ -11,10 +11,10 @@ import type { Logger } from "../logger.ts";
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     telegramBotToken: "test-token",
+    telegramAllowedChatId: 123456789,
     workspaceRoot: join(tmpdir(), `startup-test-${Date.now()}`),
     logDir: join(tmpdir(), `startup-logs-${Date.now()}`),
     agentProvider: "claude",
-    claudePermissionMode: "default",
     claudeCommandsPageSize: 8,
     ...overrides,
   };
