@@ -30,6 +30,7 @@ Before installation, you need:
 
 - **Telegram Bot Token** - Get from [@BotFather](https://t.me/botfather)
 - **Claude Code** - Installed and authenticated ([Installation Guide](https://github.com/anthropics/claude-code))
+- **Bun-compatible CPU on x64 hosts** - If your Linux/macOS x64 server reports `Illegal instruction`, rerun the installer and let it fall back to the Bun baseline binary for older CPUs
 
 ### One-Line Install (Recommended)
 
@@ -42,6 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 This will automatically:
 
 - Install bun (if not present)
+- Fall back to the Bun baseline binary on older x64 CPUs that cannot run the default Bun build
 - Clone the repository to `~/.cc-im`
 - Guide you through configuration
 - Install dependencies
@@ -49,6 +51,8 @@ This will automatically:
 - Create a `cc-im` command for service management
 
 If your shell cannot provide an interactive TTY, the installer now skips the initial "Press Enter" confirmation automatically. For fully non-interactive installs, pre-set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_ID` before running the command.
+
+On Linux/macOS x64, you can force the more compatible Bun build explicitly with `CC_IM_BUN_VARIANT=baseline` during install.
 
 After installation, use these commands:
 

@@ -92,6 +92,11 @@ command_exists() {
     command -v "$1" &> /dev/null
 }
 
+bun_binary_works() {
+    local bun_path="${1:-bun}"
+    "$bun_path" --version >/dev/null 2>&1
+}
+
 # Detect OS
 detect_os() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -101,6 +106,112 @@ detect_os() {
     else
         echo "unknown"
     fi
+}
+
+cpu_supports_avx2() {
+    local machine
+    machine=$(uname -m)
+
+    if [[ "$machine" != "x86_64" ]]; then
+        return 0
+    fi
+
+    if [[ "$OSTYPE" == "linux-gnu"* ]] && [[ -r /proc/cpuinfo ]]; then
+        grep -qi "avx2" /proc/cpuinfo
+        return $?
+    fi
+
+    if [[ "$OSTYPE" == "darwin"* ]] && command_exists sysctl; then
+        sysctl -a 2>/dev/null | grep -qi "AVX2"
+        return $?
+    fi
+
+    return 0
+}
+
+should_use_baseline_bun() {
+    local variant="${CC_IM_BUN_VARIANT:-auto}"
+
+    case "$variant" in
+        baseline)
+            return 0
+            ;;
+        standard)
+            return 1
+            ;;
+    esac
+
+    cpu_supports_avx2 || return 0
+    return 1
+}
+
+install_baseline_bun() {
+    local os
+    local machine
+    local platform
+    local archive_path
+    local extract_dir
+    local download_url
+    local bun_binary
+
+    os=$(detect_os)
+    machine=$(uname -m)
+
+    if [[ "$machine" != "x86_64" ]]; then
+        log_error "Baseline Bun fallback only applies to x86_64 hosts."
+        return 1
+    fi
+
+    case "$os" in
+        linux)
+            platform="linux-x64-baseline"
+            ;;
+        macos)
+            platform="darwin-x64-baseline"
+            ;;
+        *)
+            log_error "Unsupported OS for baseline Bun fallback: $os"
+            return 1
+            ;;
+    esac
+
+    if ! command_exists unzip; then
+        log_error "unzip is required to install baseline Bun."
+        return 1
+    fi
+
+    archive_path=$(mktemp "/tmp/cc-im-bun-${platform}.XXXXXX.zip")
+    extract_dir=$(mktemp -d "/tmp/cc-im-bun-${platform}.XXXXXX")
+    download_url="https://github.com/oven-sh/bun/releases/latest/download/bun-${platform}.zip"
+
+    log_info "Downloading Bun baseline binary for older x64 CPUs..."
+    if ! curl -fsSL "$download_url" -o "$archive_path"; then
+        rm -f "$archive_path"
+        rm -rf "$extract_dir"
+        log_error "Failed to download baseline Bun from $download_url"
+        return 1
+    fi
+
+    unzip -qo "$archive_path" -d "$extract_dir"
+    bun_binary=$(find "$extract_dir" -type f -name bun | head -n 1)
+
+    if [[ -z "$bun_binary" ]]; then
+        rm -f "$archive_path"
+        rm -rf "$extract_dir"
+        log_error "Baseline Bun archive did not contain a bun binary."
+        return 1
+    fi
+
+    mkdir -p "$HOME/.bun/bin"
+    cp "$bun_binary" "$HOME/.bun/bin/bun"
+    chmod +x "$HOME/.bun/bin/bun"
+
+    rm -f "$archive_path"
+    rm -rf "$extract_dir"
+
+    export PATH="$HOME/.bun/bin:$PATH"
+    log_success "Installed Bun baseline binary at $HOME/.bun/bin/bun"
+    return 0
 }
 
 # Check and install git
@@ -135,11 +246,36 @@ check_git() {
 # Check and install bun
 check_and_install_bun() {
     if command_exists bun; then
-        log_success "Found bun at: $(which bun)"
-        return 0
+        local bun_path
+        bun_path=$(which bun)
+
+        if bun_binary_works "$bun_path"; then
+            log_success "Found bun at: $bun_path"
+            return 0
+        fi
+
+        log_warn "Detected bun at $bun_path, but it cannot execute on this machine."
+        if should_use_baseline_bun; then
+            log_info "Falling back to Bun baseline build for older x64 CPUs..."
+            if install_baseline_bun && bun_binary_works "$HOME/.bun/bin/bun"; then
+                return 0
+            fi
+        fi
+
+        log_error "Existing bun installation is not runnable. Reinstall Bun and try again."
+        exit 1
     fi
 
     log_warn "bun is not installed"
+    if should_use_baseline_bun; then
+        log_info "Installing Bun baseline build for older x64 CPUs..."
+        if install_baseline_bun && bun_binary_works "$HOME/.bun/bin/bun"; then
+            return 0
+        fi
+        log_error "Failed to install Bun baseline binary."
+        exit 1
+    fi
+
     log_info "Installing bun..."
 
     if curl -fsSL https://bun.sh/install | bash; then
@@ -157,10 +293,17 @@ check_and_install_bun() {
             export PATH="$HOME/.bun/bin:$PATH"
         fi
 
-        if command_exists bun || [[ -f "$HOME/.bun/bin/bun" ]]; then
+        if bun_binary_works bun || bun_binary_works "$HOME/.bun/bin/bun"; then
             return 0
         else
-            log_error "Please restart your terminal and try again"
+            log_warn "Installed bun, but the binary cannot execute."
+            if should_use_baseline_bun; then
+                log_info "Retrying with Bun baseline build..."
+                if install_baseline_bun && bun_binary_works "$HOME/.bun/bin/bun"; then
+                    return 0
+                fi
+            fi
+            log_error "Please reinstall Bun with a compatible binary and try again"
             exit 1
         fi
     else
@@ -308,13 +451,6 @@ create_launcher() {
 # CC-IM Service Launcher
 
 if [[ -f "\$HOME/.config/systemd/user/cc-im.service" ]]; then
-    echo "Usage:"
-    echo "  cc-im start    - Start the service"
-    echo "  cc-im stop     - Stop the service"
-    echo "  cc-im restart  - Restart the service"
-    echo "  cc-im status   - Check service status"
-    echo "  cc-im logs     - View logs"
-    echo ""
     case "\$1" in
         start)
             systemctl --user start cc-im
@@ -334,6 +470,14 @@ if [[ -f "\$HOME/.config/systemd/user/cc-im.service" ]]; then
         logs)
             tail -f "$INSTALL_DIR/logs/app.log"
             ;;
+        ""|--help|-h)
+            echo "Usage:"
+            echo "  cc-im start    - Start the service"
+            echo "  cc-im stop     - Stop the service"
+            echo "  cc-im restart  - Restart the service"
+            echo "  cc-im status   - Check service status"
+            echo "  cc-im logs     - View logs"
+            ;;
         *)
             systemctl --user status cc-im --no-pager
             ;;
@@ -349,13 +493,6 @@ EOF
 # CC-IM Service Launcher
 
 if [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
-    echo "Usage:"
-    echo "  cc-im start    - Start the service"
-    echo "  cc-im stop     - Stop the service"
-    echo "  cc-im restart  - Restart the service"
-    echo "  cc-im status   - Check service status"
-    echo "  cc-im logs     - View logs"
-    echo ""
     case "\$1" in
         start)
             launchctl start com.cc-im.app
@@ -376,6 +513,14 @@ if [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             ;;
         logs)
             tail -f "$INSTALL_DIR/logs/app.log"
+            ;;
+        ""|--help|-h)
+            echo "Usage:"
+            echo "  cc-im start    - Start the service"
+            echo "  cc-im stop     - Stop the service"
+            echo "  cc-im restart  - Restart the service"
+            echo "  cc-im status   - Check service status"
+            echo "  cc-im logs     - View logs"
             ;;
         *)
             launchctl print "gui/\$(id - u)/com.cc-im.app" 2>/dev/null || echo "Service not running"

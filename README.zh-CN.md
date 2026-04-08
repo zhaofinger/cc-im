@@ -34,6 +34,7 @@ Claude Code 的 Telegram 桥接器，使用 Bun + TypeScript 构建。通过 Tel
 
 - **Telegram Bot Token** - 从 [@BotFather](https://t.me/botfather) 获取
 - **Claude Code** - 已安装并认证（[安装指南](https://github.com/anthropics/claude-code)）
+- **x64 主机上的 Bun 兼容 CPU** - 如果你的 Linux/macOS x64 服务器出现 `Illegal instruction`，重新运行安装脚本后会自动回退到适用于旧 CPU 的 Bun baseline 二进制
 
 ### 一行命令安装（推荐）
 
@@ -46,11 +47,16 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 这将自动：
 
 - 安装 bun（如未安装）
+- 在较老的 x64 CPU 上自动回退到更兼容的 Bun baseline 二进制
 - 克隆仓库到 `~/.cc-im`
 - 引导配置
 - 安装依赖
 - **安装为后台服务**（Linux 用 systemd，macOS 用 launchd）
 - 创建 `cc-im` 命令管理服务
+
+如果你的 shell 无法提供交互式 TTY，安装器会自动跳过开头的“按回车继续”确认。完全无人值守安装时，可以先设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_ALLOWED_CHAT_ID`。
+
+在 Linux/macOS x64 上，也可以在安装时显式设置 `CC_IM_BUN_VARIANT=baseline`，强制使用兼容性更高的 Bun 版本。
 
 安装完成后，使用以下命令：
 

@@ -86,4 +86,61 @@ describe("install.sh", () => {
     expect(output).toContain("This script will:");
     expect(output).toContain("Continuing immediately");
   });
+
+  test("linux launcher prints usage only for help", () => {
+    const homeDir = join(tempDir, "home");
+    const serviceDir = join(homeDir, ".config", "systemd", "user");
+    Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        `mkdir -p "${serviceDir}" && touch "${join(serviceDir, "cc-im.service")}"`,
+      ],
+      cwd: repoRoot,
+    });
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        [
+          `HOME="${homeDir}"`,
+          `INSTALL_DIR="${join(homeDir, ".cc-im")}"`,
+          'OSTYPE="linux-gnu"',
+          `source "${scriptPath}"`,
+          "create_launcher",
+          `cat "${join(homeDir, ".local", "bin", "cc-im")}"`,
+        ].join("; "),
+      ],
+      cwd: repoRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const launcher = result.stdout.toString();
+    expect(launcher).toContain('""|--help|-h)');
+    expect(launcher).toContain("status)\n            systemctl --user status cc-im --no-pager");
+    expect(launcher).not.toContain(
+      'if [[ -f "$HOME/.config/systemd/user/cc-im.service" ]]; then\n    echo "Usage:"',
+    );
+  });
+
+  test("baseline bun is selected on x64 linux without avx2", () => {
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        [
+          `source "${scriptPath}"`,
+          'OSTYPE="linux-gnu"',
+          "uname() { echo x86_64; }",
+          "cpu_supports_avx2() { return 1; }",
+          "if should_use_baseline_bun; then echo yes; else echo no; fi",
+        ].join("; "),
+      ],
+      cwd: repoRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString().trim()).toBe("yes");
+  });
 });

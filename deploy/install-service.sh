@@ -47,8 +47,14 @@ detect_os() {
 check_bun() {
     if command -v bun &> /dev/null; then
         BUN_PATH=$(which bun)
-        log_info "Found bun at: $BUN_PATH"
-        return 0
+        if "$BUN_PATH" --version >/dev/null 2>&1; then
+            log_info "Found bun at: $BUN_PATH"
+            return 0
+        fi
+
+        log_error "Found bun at $BUN_PATH, but the binary cannot execute on this machine."
+        log_info "If this host is an older x64 CPU, reinstall via install.sh so it can fall back to Bun baseline."
+        return 1
     else
         log_error "bun is not installed. Please install bun first:"
         echo "  curl -fsSL https://bun.sh/install | bash"
