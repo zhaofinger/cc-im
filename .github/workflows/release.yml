@@ -26,14 +26,25 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (with npm fallback)
         run: |
-          # Configure DNS and retry
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i/5..."
-            bun install --force --no-cache --network-concurrency 8 && break
-            sleep 10
-          done
+          # Try bun install with retries
+          for i in 1 2 3; do
+            bun install && break
+            sleep 5
+          done || \
+          # Fallback to npm if bun fails
+          (echo "Bun install failed, using npm..." && npm ci)
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-linux-x64 --outfile cc-im-linux-x64
@@ -58,14 +69,23 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (with npm fallback)
         run: |
-          # Configure DNS and retry
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i/5..."
-            bun install --force --no-cache --network-concurrency 8 && break
-            sleep 10
-          done
+          for i in 1 2 3; do
+            bun install && break
+            sleep 5
+          done || \
+          (echo "Bun install failed, using npm..." && npm ci)
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-linux-arm64 --outfile cc-im-linux-arm64
@@ -90,14 +110,23 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (with npm fallback)
         run: |
-          # Configure DNS and retry
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i/5..."
-            bun install --force --no-cache --network-concurrency 8 && break
-            sleep 10
-          done
+          for i in 1 2 3; do
+            bun install && break
+            sleep 5
+          done || \
+          (echo "Bun install failed, using npm..." && npm ci)
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-darwin-x64 --outfile cc-im-darwin-x64
@@ -122,14 +151,23 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies (with npm fallback)
         run: |
-          # Configure DNS and retry
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i/5..."
-            bun install --force --no-cache --network-concurrency 8 && break
-            sleep 10
-          done
+          for i in 1 2 3; do
+            bun install && break
+            sleep 5
+          done || \
+          (echo "Bun install failed, using npm..." && npm ci)
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-darwin-arm64 --outfile cc-im-darwin-arm64
