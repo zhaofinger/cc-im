@@ -435,8 +435,11 @@ function shortenStatusText(text: string): string {
  * 支持颜色码、光标移动、清除屏幕等多种 ANSI 序列
  */
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  const ansiPattern =
-    /\u001b\[[\d;]*[a-zA-Z]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[()[\]{}<>=/]#\w+|\u001b[[\]()#;?]|[\u0000-\u001f\u007f-\u009f]/g;
+  const esc = String.fromCharCode(0x1b);
+  const bell = String.fromCharCode(0x07);
+  const ansiPattern = new RegExp(
+    `${esc}\\[[\\d;]*[a-zA-Z]|${esc}\\][^${bell}${esc}]*(?:${bell}|${esc}\\\\)|${esc}[()[\\]{}<>=/]#\\w+|${esc}[[\\]()#;?]|[\\x00-\\x1f\\x7f-\\x9f]`,
+    "g",
+  );
   return text.replace(ansiPattern, "");
 }

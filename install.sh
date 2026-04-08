@@ -253,40 +253,6 @@ EOF
     log_success ".env file created!"
 }
 
-install_deps() {
-    if ! command -v bun >/dev/null 2>&1; then
-        log_error "bun is required but not installed"
-        exit 1
-    fi
-
-    local install_output
-    local install_status
-
-    log_info "Installing dependencies..."
-
-    set +e
-    if [[ -n "${CC_IM_NPM_REGISTRY:-}" ]]; then
-        install_output=$(cd "$INSTALL_DIR" && NPM_CONFIG_REGISTRY="$CC_IM_NPM_REGISTRY" bun install 2>&1)
-        install_status=$?
-    else
-        install_output=$(cd "$INSTALL_DIR" && bun install 2>&1)
-        install_status=$?
-    fi
-    set -e
-
-    if [[ -n "$install_output" ]]; then
-        echo "$install_output"
-    fi
-
-    if [[ $install_status -eq 0 ]]; then
-        log_success "Dependencies installed"
-        return 0
-    fi
-
-    log_error "Dependency installation failed."
-    return 1
-}
-
 # Install as background service
 install_service() {
     local OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -298,13 +264,7 @@ install_service() {
     fi
 
     log_info "Installing as background service..."
-
-    if [[ -f "$INSTALL_DIR/deploy/install-service.sh" ]]; then
-        bash "$INSTALL_DIR/deploy/install-service.sh" --user
-    else
-        # Fallback: create minimal service
-        create_minimal_service "$OS"
-    fi
+    create_minimal_service "$OS"
 }
 
 # Create minimal service configuration

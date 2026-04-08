@@ -190,7 +190,7 @@ describe("MemoryState", () => {
     });
 
     test("should store resolve function", () => {
-      const resolveFn = (decision: "approve" | "reject") => {};
+      const resolveFn = (_decision: "approve" | "reject") => {};
       const approval = {
         id: "approval-1",
         runId: "run-123",
