@@ -124,7 +124,7 @@ exit 0
     expect(readFileSync(envLogPath, "utf8")).toContain("registry=https://registry.npmmirror.com");
   });
 
-  test("prints certificate troubleshooting when bun install fails on certificate verification", () => {
+  test("surfaces bun install failure output directly", () => {
     const installDir = join(tempDir, "install");
     const fakeBinDir = join(tempDir, "bin");
     mkdirSync(installDir, { recursive: true });
@@ -151,7 +151,6 @@ exit 1
     const output = `${result.stdout.toString()}\n${result.stderr.toString()}`;
     expect(result.exitCode).toBe(1);
     expect(output).toContain("Dependency installation failed.");
-    expect(output).toContain("NPM_CONFIG_REGISTRY=https://registry.npmmirror.com");
-    expect(output).toContain("sudo update-ca-certificates");
+    expect(output).toContain("UNKNOWN_CERTIFICATE_VERIFICATION_ERROR");
   });
 });

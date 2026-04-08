@@ -24,6 +24,10 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_prompt() { echo -e "${CYAN}[INPUT]${NC} $1"; }
 
+is_noninteractive() {
+    [[ "${CC_IM_INSTALL_NONINTERACTIVE:-}" == "1" || ! -t 0 ]]
+}
+
 # Detect OS and architecture
 detect_platform() {
     local OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -147,6 +151,44 @@ setup_env() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
+    if is_noninteractive; then
+        local TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+        local TELEGRAM_ALLOWED_CHAT_ID="${TELEGRAM_ALLOWED_CHAT_ID:-}"
+        local WORKSPACE_ROOT_VALUE="${WORKSPACE_ROOT:-/code_workspace}"
+        local LOG_DIR_VALUE="${LOG_DIR:-$INSTALL_DIR/logs}"
+
+        if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; then
+            log_error "TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID are required in non-interactive mode"
+            exit 1
+        fi
+
+        if [[ ! -d "$WORKSPACE_ROOT_VALUE" ]]; then
+            log_info "Creating workspace directory: $WORKSPACE_ROOT_VALUE"
+            mkdir -p "$WORKSPACE_ROOT_VALUE"
+        fi
+
+        cat > "$ENV_FILE" << EOF
+# Telegram Bot Configuration (Required)
+TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN
+
+# Security (Recommended)
+TELEGRAM_ALLOWED_CHAT_ID=$TELEGRAM_ALLOWED_CHAT_ID
+
+# Paths
+WORKSPACE_ROOT=$WORKSPACE_ROOT_VALUE
+LOG_DIR=$LOG_DIR_VALUE
+
+# Claude Commands Page Size
+CLAUDE_COMMANDS_PAGE_SIZE=8
+
+# Agent Provider (claude or codex)
+AGENT_PROVIDER=claude
+EOF
+
+        log_success ".env file created!"
+        return 0
+    fi
+
     # Required: Telegram Bot Token
     local TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
     while [[ -z "$TELEGRAM_BOT_TOKEN" ]]; do
@@ -209,6 +251,40 @@ AGENT_PROVIDER=claude
 EOF
 
     log_success ".env file created!"
+}
+
+install_deps() {
+    if ! command -v bun >/dev/null 2>&1; then
+        log_error "bun is required but not installed"
+        exit 1
+    fi
+
+    local install_output
+    local install_status
+
+    log_info "Installing dependencies..."
+
+    set +e
+    if [[ -n "${CC_IM_NPM_REGISTRY:-}" ]]; then
+        install_output=$(cd "$INSTALL_DIR" && NPM_CONFIG_REGISTRY="$CC_IM_NPM_REGISTRY" bun install 2>&1)
+        install_status=$?
+    else
+        install_output=$(cd "$INSTALL_DIR" && bun install 2>&1)
+        install_status=$?
+    fi
+    set -e
+
+    if [[ -n "$install_output" ]]; then
+        echo "$install_output"
+    fi
+
+    if [[ $install_status -eq 0 ]]; then
+        log_success "Dependencies installed"
+        return 0
+    fi
+
+    log_error "Dependency installation failed."
+    return 1
 }
 
 # Install as background service
@@ -423,7 +499,12 @@ print_banner() {
 # Wait for user confirmation
 wait_for_confirmation() {
     log_prompt "Press Enter to continue or Ctrl+C to cancel..."
-    read -r
+    if is_noninteractive; then
+        log_info "Continuing immediately because interactive input is unavailable."
+        return 0
+    fi
+
+    read -r || true
 }
 
 # Main

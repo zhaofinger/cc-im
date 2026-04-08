@@ -45,12 +45,12 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 
 这将自动：
 
-- 安装 bun（如未安装）
-- 克隆仓库到 `~/.cc-im`
+- 下载适用于当前平台的预编译二进制到 `~/.cc-im`
 - 引导配置
-- 安装依赖
 - **安装为后台服务**（Linux 用 systemd，macOS 用 launchd）
 - 创建 `cc-im` 命令管理服务
+
+如果当前 shell 没有可交互 TTY，安装脚本会自动跳过最开始的“按 Enter 继续”确认。若要完全非交互安装，请在运行前预先设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_ALLOWED_CHAT_ID`。
 
 安装完成后，使用以下命令：
 
