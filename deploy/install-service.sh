@@ -120,12 +120,13 @@ install_linux() {
     # Set target based on user vs system install
     if [[ "$USE_USER" == true ]]; then
         TARGET="default.target"
+        USER_DIRECTIVES_SCRIPT='/^User=%USER%$/d; /^Group=%GROUP%$/d'
     else
         TARGET="multi-user.target"
+        USER_DIRECTIVES_SCRIPT='s|%USER%|'"$USER_NAME"'|g; s|%GROUP%|'"$GROUP_NAME"'|g'
     fi
 
-    sed -e "s|%USER%|$USER_NAME|g" \
-        -e "s|%GROUP%|$GROUP_NAME|g" \
+    sed -e "$USER_DIRECTIVES_SCRIPT" \
         -e "s|%WORKDIR%|$PROJECT_DIR|g" \
         -e "s|%HOME%|$HOME_DIR|g" \
         -e "s|%BUN_PATH%|$BUN_PATH|g" \

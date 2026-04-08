@@ -1,5 +1,14 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -142,5 +151,57 @@ describe("install.sh", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString().trim()).toBe("yes");
+  });
+
+  test("user systemd install omits user and group directives", () => {
+    const projectDir = join(tempDir, "project");
+    const deployDir = join(projectDir, "deploy");
+    const fakeBinDir = join(tempDir, "fake-bin");
+    const homeDir = join(tempDir, "home");
+
+    mkdirSync(deployDir, { recursive: true });
+    mkdirSync(fakeBinDir, { recursive: true });
+    mkdirSync(homeDir, { recursive: true });
+
+    cpSync(join(repoRoot, "deploy", "install-service.sh"), join(deployDir, "install-service.sh"));
+    cpSync(join(repoRoot, "deploy", "cc-im.service"), join(deployDir, "cc-im.service"));
+    writeFileSync(
+      join(projectDir, ".env"),
+      "TELEGRAM_BOT_TOKEN=test\nTELEGRAM_ALLOWED_CHAT_ID=1\n",
+    );
+
+    writeFileSync(
+      join(fakeBinDir, "bun"),
+      '#!/bin/bash\nif [[ "$1" == "--version" ]]; then\n  echo 1.3.11\n  exit 0\nfi\nexit 0\n',
+    );
+    chmodSync(join(fakeBinDir, "bun"), 0o755);
+
+    writeFileSync(join(fakeBinDir, "systemctl"), "#!/bin/bash\nexit 0\n");
+    chmodSync(join(fakeBinDir, "systemctl"), 0o755);
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        `HOME="${homeDir}" PATH="${fakeBinDir}:$PATH" bash "${join(deployDir, "install-service.sh")}" --user`,
+      ],
+      cwd: projectDir,
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        OSTYPE: "linux-gnu",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+
+    const serviceFile = join(homeDir, ".config", "systemd", "user", "cc-im.service");
+    expect(existsSync(serviceFile)).toBe(true);
+
+    const contents = readFileSync(serviceFile, "utf8");
+    expect(contents).not.toContain("\nUser=");
+    expect(contents).not.toContain("\nGroup=");
+    expect(contents).toContain(`WorkingDirectory=${projectDir}`);
   });
 });

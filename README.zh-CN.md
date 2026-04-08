@@ -90,6 +90,8 @@ cp .env.example .env
 # 安装为后台服务
 bash deploy/install-service.sh --user
 
+# 在 Linux 用户级 systemd 服务中，cc-im 会自动省略 User=/Group=，避免 systemd --user 启动失败
+
 # 或直接前台启动
 bun run start
 ```

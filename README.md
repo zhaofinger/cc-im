@@ -86,6 +86,8 @@ cp .env.example .env
 # Install as background service
 bash deploy/install-service.sh --user
 
+# On Linux user services, cc-im omits User=/Group= automatically so systemd --user can start cleanly
+
 # Or start manually
 bun run start
 ```
