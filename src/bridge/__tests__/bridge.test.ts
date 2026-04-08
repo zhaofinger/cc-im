@@ -339,6 +339,17 @@ describe("Bridge", () => {
       expect((sent as any).text).toContain("<b>State</b>");
     });
 
+    test("should not probe slash commands during workspace selection", async () => {
+      await bridge.handleCallback({
+        id: "cb1",
+        chatId: 123456,
+        data: "ws:workspace1",
+      });
+
+      const probeCalls = agent.calls.filter((c: any) => c.method === "probeSlashCommands");
+      expect(probeCalls).toHaveLength(0);
+    });
+
     test("should handle command page navigation", async () => {
       // This test is skipped due to complex state persistence across tests
       // The memory state loads from disk, causing inconsistent test behavior

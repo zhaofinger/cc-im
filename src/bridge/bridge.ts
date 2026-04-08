@@ -228,17 +228,15 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
     this.state.setSelectedWorkspace(chatId, workspacePath, workspaceName);
 
     const existingSession = this.state.getWorkspaceSession(workspacePath);
-    let session = existingSession;
-    if (!session) {
-      const probe = await this.agent.probeSlashCommands(workspacePath);
-      session = this.state.setWorkspaceSession({
+    const session =
+      existingSession ||
+      this.state.setWorkspaceSession({
         workspaceName,
         workspacePath,
-        sessionId: probe.sessionId || existingSession?.sessionId || "",
-        slashCommands: probe.slashCommands,
+        sessionId: "",
+        slashCommands: [],
         lastTouchedAt: Date.now(),
       });
-    }
 
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     await this.telegram.sendMessage(
