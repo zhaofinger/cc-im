@@ -26,18 +26,8 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
       - name: Install dependencies
-        run: bun install
+        run: bun install --no-save
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-linux-x64 --outfile cc-im-linux-x64
@@ -62,18 +52,8 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
       - name: Install dependencies
-        run: bun install
+        run: bun install --no-save
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-linux-arm64 --outfile cc-im-linux-arm64
@@ -98,18 +78,8 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
       - name: Install dependencies
-        run: bun install
+        run: bun install --no-save
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-darwin-x64 --outfile cc-im-darwin-x64
@@ -134,18 +104,8 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
       - name: Install dependencies
-        run: bun install
+        run: bun install --no-save
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-darwin-arm64 --outfile cc-im-darwin-arm64
