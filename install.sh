@@ -1,13 +1,14 @@
 #!/bin/bash
 # CC-IM Install Script
-# One-line install and setup as a background service
+# Download and install pre-built binary from GitHub Releases
 # Usage: curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | bash
 
 set -e
 
 PROJECT_NAME="cc-im"
-REPO_URL="https://github.com/zhaofinger/cc-im.git"
+REPO_URL="https://github.com/zhaofinger/cc-im"
 INSTALL_DIR="$HOME/.cc-im"
+BIN_DIR="$HOME/.local/bin"
 
 # Colors
 RED='\033[0;31m'
@@ -23,201 +24,112 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_prompt() { echo -e "${CYAN}[INPUT]${NC} $1"; }
 
-print_dependency_install_help() {
-    echo ""
-    log_error "Dependency installation failed."
-    log_info "If you are behind a proxy, custom CA, or mirror, rerun install.sh with one or more of:"
-    echo "  NPM_CONFIG_REGISTRY=https://registry.npmmirror.com"
-    echo "  SSL_CERT_FILE=/path/to/ca-certificates.crt"
-    echo "  NODE_EXTRA_CA_CERTS=/path/to/custom-ca.pem"
-    echo ""
-    log_info "On Debian/Ubuntu, you may also need:"
-    echo "  sudo apt-get update && sudo apt-get install -y ca-certificates"
-    echo "  sudo update-ca-certificates"
+# Detect OS and architecture
+detect_platform() {
+    local OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    local ARCH=$(uname -m)
+
+    case "$ARCH" in
+        x86_64|amd64)
+            ARCH="x64"
+            ;;
+        arm64|aarch64)
+            ARCH="arm64"
+            ;;
+        *)
+            log_error "Unsupported architecture: $ARCH"
+            exit 1
+            ;;
+    esac
+
+    case "$OS" in
+        linux)
+            PLATFORM="linux-${ARCH}"
+            ;;
+        darwin)
+            PLATFORM="darwin-${ARCH}"
+            ;;
+        *)
+            log_error "Unsupported OS: $OS"
+            exit 1
+            ;;
+    esac
+
+    echo "$PLATFORM"
 }
 
-prepare_bun_install_env() {
-    if [[ -n "${CC_IM_NPM_REGISTRY:-}" && -z "${NPM_CONFIG_REGISTRY:-}" ]]; then
-        export NPM_CONFIG_REGISTRY="$CC_IM_NPM_REGISTRY"
+# Get latest release version
+get_latest_version() {
+    local version_url="${REPO_URL}/releases/latest"
+    local version
+
+    # Try to get version from GitHub API
+    if command -v curl &> /dev/null; then
+        version=$(curl -sI "$version_url" | grep -i "location:" | sed 's/.*\/tag\///' | tr -d '\r')
     fi
+
+    # Fallback: use API endpoint
+    if [[ -z "$version" ]]; then
+        version=$(curl -s "${REPO_URL/github.com/api.github.com/repos\/zhaofinger\/cc-im}/releases/latest" | grep -o '"tag_name": "[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/')
+    fi
+
+    echo "$version"
 }
 
-run_bun_install() {
-    prepare_bun_install_env
+# Download binary from GitHub Releases
+download_binary() {
+    local version="${1:-latest}"
+    local platform="$2"
+    local download_url
 
-    if [[ -n "${NPM_CONFIG_REGISTRY:-}" ]]; then
-        log_info "Using npm registry: $NPM_CONFIG_REGISTRY"
-    fi
-
-    if [[ -n "${SSL_CERT_FILE:-}" ]]; then
-        log_info "Using SSL_CERT_FILE: $SSL_CERT_FILE"
-    fi
-
-    if [[ -n "${NODE_EXTRA_CA_CERTS:-}" ]]; then
-        log_info "Using NODE_EXTRA_CA_CERTS: $NODE_EXTRA_CA_CERTS"
-    fi
-
-    bun install
-}
-
-read_user_input() {
-    local __var_name="$1"
-    local __input=""
-
-    if [[ "${CC_IM_INSTALL_NONINTERACTIVE:-0}" != "1" ]] && [[ -t 1 ]] && [[ -r /dev/tty ]]; then
-        if IFS= read -r __input < /dev/tty; then
-            printf -v "$__var_name" '%s' "$__input"
-            return 0
-        fi
-    fi
-
-    if [[ -t 0 ]]; then
-        if IFS= read -r __input; then
-            printf -v "$__var_name" '%s' "$__input"
-            return 0
-        fi
-    fi
-
-    return 1
-}
-
-require_interactive_input() {
-    local __var_name="$1"
-    local __label="$2"
-
-    if read_user_input "$__var_name"; then
-        return 0
-    fi
-
-    log_error "Unable to read ${__label} interactively."
-    log_info "Set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID before running install.sh in non-interactive mode."
-    exit 1
-}
-
-read_optional_input() {
-    local __var_name="$1"
-    local __default_value="$2"
-
-    if read_user_input "$__var_name"; then
-        return 0
-    fi
-
-    printf -v "$__var_name" '%s' "$__default_value"
-}
-
-wait_for_confirmation() {
-    local _confirmation=""
-
-    log_prompt "Press Enter to continue or Ctrl+C to cancel..."
-    if ! read_user_input _confirmation; then
-        log_warn "Interactive confirmation unavailable. Continuing immediately."
-    fi
-}
-
-print_banner() {
-    echo ""
-    echo "╔══════════════════════════════════════════╗"
-    echo "║                                          ║"
-    echo "║    🤖 CC-IM - Claude Code Telegram Bot   ║"
-    echo "║                                          ║"
-    echo "╚══════════════════════════════════════════╝"
-    echo ""
-}
-
-# Check if command exists
-command_exists() {
-    command -v "$1" &> /dev/null
-}
-
-# Detect OS
-detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo "linux"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    else
-        echo "unknown"
-    fi
-}
-
-# Check and install git
-check_git() {
-    if command_exists git; then
-        return 0
-    fi
-
-    log_warn "git is not installed"
-    log_info "Installing git..."
-
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command_exists apt-get; then
-            sudo apt-get update && sudo apt-get install -y git
-        elif command_exists yum; then
-            sudo yum install -y git
-        elif command_exists pacman; then
-            sudo pacman -S --noconfirm git
-        else
-            log_error "Cannot install git automatically. Please install git manually."
+    if [[ "$version" == "latest" ]]; then
+        version=$(get_latest_version)
+        if [[ -z "$version" ]]; then
+            log_error "Failed to get latest version"
             exit 1
         fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        log_error "Please install git first: xcode-select --install"
-        exit 1
-    else
-        log_error "Unsupported OS. Please install git manually."
-        exit 1
-    fi
-}
-
-# Check and install bun
-check_and_install_bun() {
-    if command_exists bun; then
-        log_success "Found bun at: $(which bun)"
-        return 0
     fi
 
-    log_warn "bun is not installed"
-    log_info "Installing bun..."
+    log_info "Downloading ${PROJECT_NAME} ${version} for ${platform}..."
 
-    if curl -fsSL https://bun.sh/install | bash; then
-        log_success "bun installed successfully"
+    local archive_name="${PROJECT_NAME}-${platform}.tar.gz"
+    download_url="${REPO_URL}/releases/download/${version}/${archive_name}"
 
-        # Add to PATH for current session
-        if [[ -f "$HOME/.bashrc" ]]; then
-            source "$HOME/.bashrc" 2>/dev/null || true
+    mkdir -p "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+
+    # Download with retry
+    local max_retries=3
+    local retry=0
+
+    while [[ $retry -lt $max_retries ]]; do
+        if curl -fsSL -o "$archive_name" "$download_url" 2>/dev/null; then
+            log_success "Downloaded ${archive_name}"
+            break
         fi
-        if [[ -f "$HOME/.zshrc" ]]; then
-            source "$HOME/.zshrc" 2>/dev/null || true
-        fi
 
-        if [[ -f "$HOME/.bun/bin/bun" ]]; then
-            export PATH="$HOME/.bun/bin:$PATH"
-        fi
-
-        if command_exists bun || [[ -f "$HOME/.bun/bin/bun" ]]; then
-            return 0
+        retry=$((retry + 1))
+        if [[ $retry -lt $max_retries ]]; then
+            log_warn "Download failed, retrying... (${retry}/${max_retries})"
+            sleep 2
         else
-            log_error "Please restart your terminal and try again"
+            log_error "Failed to download binary after ${max_retries} attempts"
+            log_info "You can manually download from:"
+            log_info "  ${REPO_URL}/releases"
             exit 1
         fi
-    else
-        log_error "Failed to install bun. Visit: https://bun.sh"
-        exit 1
-    fi
-}
+    done
 
-# Clone or update repository
-setup_repo() {
-    if [[ -d "$INSTALL_DIR/.git" ]]; then
-        log_info "Updating existing installation..."
-        cd "$INSTALL_DIR"
-        git pull --ff-only
-    else
-        log_info "Cloning repository..."
-        rm -rf "$INSTALL_DIR"
-        git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
-    fi
-    log_success "Repository ready at: $INSTALL_DIR"
+    # Extract
+    log_info "Extracting..."
+    tar -xzf "$archive_name"
+    rm -f "$archive_name"
+
+    # Move binary to standard location
+    mv "${PROJECT_NAME}-${platform}" "$PROJECT_NAME"
+    chmod +x "$PROJECT_NAME"
+
+    log_success "Binary installed to: ${INSTALL_DIR}/${PROJECT_NAME}"
 }
 
 # Create .env interactively
@@ -240,7 +152,7 @@ setup_env() {
     while [[ -z "$TELEGRAM_BOT_TOKEN" ]]; do
         log_prompt "Enter your Telegram Bot Token (required):"
         echo "  💡 Get it from @BotFather: https://t.me/botfather"
-        require_interactive_input TELEGRAM_BOT_TOKEN "Telegram Bot Token"
+        read -r TELEGRAM_BOT_TOKEN
         if [[ -z "$TELEGRAM_BOT_TOKEN" ]]; then
             log_error "Telegram Bot Token is required"
         fi
@@ -252,7 +164,7 @@ setup_env() {
     while [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; do
         log_prompt "Enter your Telegram Chat ID (required):"
         echo "  💡 Use @userinfobot to get your chat ID"
-        require_interactive_input TELEGRAM_ALLOWED_CHAT_ID "Telegram Chat ID"
+        read -r TELEGRAM_ALLOWED_CHAT_ID
         if [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; then
             log_error "Telegram Chat ID is required"
         fi
@@ -262,8 +174,7 @@ setup_env() {
     echo ""
     log_prompt "Enter workspace root directory (default: /code_workspace):"
     echo "  💡 This directory should contain your code projects"
-    local WORKSPACE_ROOT="${WORKSPACE_ROOT:-}"
-    read_optional_input WORKSPACE_ROOT "${WORKSPACE_ROOT:-/code_workspace}"
+    read -r WORKSPACE_ROOT
     WORKSPACE_ROOT=${WORKSPACE_ROOT:-/code_workspace}
 
     # Create workspace if not exists
@@ -275,8 +186,7 @@ setup_env() {
     # Optional: Log Directory
     echo ""
     log_prompt "Enter log directory (default: $INSTALL_DIR/logs):"
-    local LOG_DIR="${LOG_DIR:-}"
-    read_optional_input LOG_DIR "${LOG_DIR:-$INSTALL_DIR/logs}"
+    read -r LOG_DIR
     LOG_DIR=${LOG_DIR:-$INSTALL_DIR/logs}
 
     # Create .env file
@@ -301,219 +211,278 @@ EOF
     log_success ".env file created!"
 }
 
-# Install dependencies
-install_deps() {
-    log_info "Installing dependencies..."
-    cd "$INSTALL_DIR"
-
-    local install_output=""
-    if install_output="$(run_bun_install 2>&1)"; then
-        if [[ -n "$install_output" ]]; then
-            echo "$install_output"
-        fi
-        log_success "Dependencies installed"
-        return 0
-    fi
-
-    if [[ -n "$install_output" ]]; then
-        echo "$install_output"
-    fi
-
-    if grep -Eq "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR|CERTIFICATE_VERIFY_FAILED|SELF_SIGNED_CERT|UNABLE_TO_GET_ISSUER_CERT|unable to verify the first certificate" <<< "$install_output"; then
-        print_dependency_install_help
-    fi
-
-    exit 1
-}
-
 # Install as background service
 install_service() {
-    local OS=$(detect_os)
+    local OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 
-    if [[ "$OS" == "unknown" ]]; then
+    if [[ "$OS" != "linux" && "$OS" != "darwin" ]]; then
         log_warn "Unknown OS. Skipping service installation."
-        log_info "You can run the bot manually with: cd $INSTALL_DIR && bun run start"
+        log_info "You can run the bot manually with: ${INSTALL_DIR}/${PROJECT_NAME}"
         return 1
     fi
 
     log_info "Installing as background service..."
-    cd "$INSTALL_DIR"
 
-    if bash deploy/install-service.sh --user; then
-        log_success "Service installed successfully!"
-        return 0
+    if [[ -f "$INSTALL_DIR/deploy/install-service.sh" ]]; then
+        bash "$INSTALL_DIR/deploy/install-service.sh" --user
     else
-        log_error "Failed to install service"
-        return 1
+        # Fallback: create minimal service
+        create_minimal_service "$OS"
+    fi
+}
+
+# Create minimal service configuration
+create_minimal_service() {
+    local OS="$1"
+
+    if [[ "$OS" == "linux" ]]; then
+        mkdir -p "$HOME/.config/systemd/user"
+        cat > "$HOME/.config/systemd/user/${PROJECT_NAME}.service" << EOF
+[Unit]
+Description=CC-IM Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${INSTALL_DIR}
+EnvironmentFile=${INSTALL_DIR}/.env
+ExecStart=${INSTALL_DIR}/${PROJECT_NAME}
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
+EOF
+        log_success "Service file created"
+        log_info "To start: systemctl --user start ${PROJECT_NAME}"
+    elif [[ "$OS" == "darwin" ]]; then
+        mkdir -p "$HOME/Library/LaunchAgents"
+        cat > "$HOME/Library/LaunchAgents/com.cc-im.app.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cc-im.app</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${INSTALL_DIR}/${PROJECT_NAME}</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${INSTALL_DIR}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>${INSTALL_DIR}/logs/app.log</string>
+    <key>StandardErrorPath</key>
+    <string>${INSTALL_DIR}/logs/error.log</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+EOF
+        log_success "LaunchAgent created"
+        log_info "To start: launchctl start com.cc-im.app"
     fi
 }
 
 # Create launcher command
 create_launcher() {
-    local LAUNCHER="$HOME/.local/bin/cc-im"
-    local OS=$(detect_os)
+    local LAUNCHER="$BIN_DIR/cc-im"
 
-    mkdir -p "$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
 
-    # Create launcher script based on OS
-    if [[ "$OS" == "linux" ]]; then
-        cat > "$LAUNCHER" << EOF
+    cat > "$LAUNCHER" << EOF
 #!/bin/bash
 # CC-IM Service Launcher
 
-if [[ -f "\$HOME/.config/systemd/user/cc-im.service" ]]; then
-    echo "Usage:"
-    echo "  cc-im start    - Start the service"
-    echo "  cc-im stop     - Stop the service"
-    echo "  cc-im restart  - Restart the service"
-    echo "  cc-im status   - Check service status"
-    echo "  cc-im logs     - View logs"
-    echo ""
-    case "\$1" in
-        start)
-            systemctl --user start cc-im
-            echo "Service started"
-            ;;
-        stop)
-            systemctl --user stop cc-im
-            echo "Service stopped"
-            ;;
-        restart)
-            systemctl --user restart cc-im
-            echo "Service restarted"
-            ;;
-        status)
-            systemctl --user status cc-im --no-pager
-            ;;
-        logs)
-            tail -f "$INSTALL_DIR/logs/app.log"
-            ;;
-        *)
-            systemctl --user status cc-im --no-pager
-            ;;
-    esac
-else
-    echo "Service not installed. Run install.sh to set up."
-    exit 1
+INSTALL_DIR="${INSTALL_DIR}"
+
+if [[ -f "\$INSTALL_DIR/.env" ]]; then
+    source "\$INSTALL_DIR/.env"
 fi
-EOF
-    elif [[ "$OS" == "macos" ]]; then
-        cat > "$LAUNCHER" << EOF
-#!/bin/bash
-# CC-IM Service Launcher
 
-if [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
-    echo "Usage:"
-    echo "  cc-im start    - Start the service"
-    echo "  cc-im stop     - Stop the service"
-    echo "  cc-im restart  - Restart the service"
-    echo "  cc-im status   - Check service status"
-    echo "  cc-im logs     - View logs"
-    echo ""
-    case "\$1" in
-        start)
+case "\$1" in
+    start)
+        if [[ -f "\$HOME/.config/systemd/user/${PROJECT_NAME}.service" ]]; then
+            systemctl --user start ${PROJECT_NAME}
+            echo "Service started"
+        elif [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             launchctl start com.cc-im.app
             echo "Service started"
-            ;;
-        stop)
+        else
+            echo "Service not installed. Run install.sh to set up."
+            exit 1
+        fi
+        ;;
+    stop)
+        if [[ -f "\$HOME/.config/systemd/user/${PROJECT_NAME}.service" ]]; then
+            systemctl --user stop ${PROJECT_NAME}
+            echo "Service stopped"
+        elif [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             launchctl stop com.cc-im.app
             echo "Service stopped"
-            ;;
-        restart)
+        else
+            echo "Service not installed."
+            exit 1
+        fi
+        ;;
+    restart)
+        if [[ -f "\$HOME/.config/systemd/user/${PROJECT_NAME}.service" ]]; then
+            systemctl --user restart ${PROJECT_NAME}
+            echo "Service restarted"
+        elif [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             launchctl stop com.cc-im.app 2>/dev/null || true
             sleep 1
             launchctl start com.cc-im.app
             echo "Service restarted"
-            ;;
-        status)
+        else
+            echo "Service not installed."
+            exit 1
+        fi
+        ;;
+    status)
+        if [[ -f "\$HOME/.config/systemd/user/${PROJECT_NAME}.service" ]]; then
+            systemctl --user status ${PROJECT_NAME} --no-pager
+        elif [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             launchctl print "gui/\$(id - u)/com.cc-im.app" 2>/dev/null || echo "Service not running"
-            ;;
-        logs)
-            tail -f "$INSTALL_DIR/logs/app.log"
-            ;;
-        *)
+        else
+            echo "Service not installed."
+            exit 1
+        fi
+        ;;
+    logs)
+        if [[ -f "\$INSTALL_DIR/logs/app.log" ]]; then
+            tail -f "\$INSTALL_DIR/logs/app.log"
+        else
+            echo "No log file found at \$INSTALL_DIR/logs/app.log"
+            exit 1
+        fi
+        ;;
+    update)
+        echo "Updating ${PROJECT_NAME}..."
+        curl -fsSL "${REPO_URL}/raw/main/install.sh" | bash
+        ;;
+    *)
+        echo "Usage: cc-im [start|stop|restart|status|logs|update]"
+        echo ""
+        echo "Commands:"
+        echo "  start    - Start the service"
+        echo "  stop     - Stop the service"
+        echo "  restart  - Restart the service"
+        echo "  status   - Check service status"
+        echo "  logs     - View logs"
+        echo "  update   - Update to latest version"
+        echo ""
+        # Show current status
+        if [[ -f "\$HOME/.config/systemd/user/${PROJECT_NAME}.service" ]]; then
+            systemctl --user status ${PROJECT_NAME} --no-pager 2>/dev/null || echo "Service not running"
+        elif [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             launchctl print "gui/\$(id - u)/com.cc-im.app" 2>/dev/null || echo "Service not running"
-            ;;
-    esac
-else
-    echo "Service not installed. Run install.sh to set up."
-    exit 1
-fi
+        fi
+        ;;
+esac
 EOF
-    fi
 
     chmod +x "$LAUNCHER"
 
     # Add to PATH if not already there
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
         echo ""
-        log_info "Adding ~/.local/bin to PATH..."
+        log_info "Adding ${BIN_DIR} to PATH..."
 
         if [[ -f "$HOME/.bashrc" ]]; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+            echo 'export PATH="'$BIN_DIR':$PATH"' >> "$HOME/.bashrc"
         fi
         if [[ -f "$HOME/.zshrc" ]]; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+            echo 'export PATH="'$BIN_DIR':$PATH"' >> "$HOME/.zshrc"
         fi
 
-        export PATH="$HOME/.local/bin:$PATH"
+        export PATH="$BIN_DIR:$PATH"
     fi
 
     log_success "Launcher created: cc-im"
+}
+
+# Print banner
+print_banner() {
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║                                          ║"
+    echo "║    🤖 CC-IM - Claude Code Telegram Bot   ║"
+    echo "║                                          ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+}
+
+# Wait for user confirmation
+wait_for_confirmation() {
+    log_prompt "Press Enter to continue or Ctrl+C to cancel..."
+    read -r
 }
 
 # Main
 main() {
     print_banner
 
+    # Check for required tools
+    if ! command -v curl &> /dev/null; then
+        log_error "curl is required but not installed"
+        exit 1
+    fi
+
     log_info "This script will:"
-    echo "  1. Install git (if needed)"
-    echo "  2. Install bun (if needed)"
-    echo "  3. Clone cc-im repository"
-    echo "  4. Configure your bot"
-    echo "  5. Install dependencies"
-    echo "  6. Install as a background service"
+    echo "  1. Download pre-built binary for your platform"
+    echo "  2. Configure your bot"
+    echo "  3. Install as a background service"
     echo ""
 
     wait_for_confirmation
 
+    # Detect platform
+    PLATFORM=$(detect_platform)
+    log_info "Detected platform: ${PLATFORM}"
     echo ""
-    check_git
+
+    # Download binary
+    download_binary "latest" "$PLATFORM"
     echo ""
-    check_and_install_bun
-    echo ""
-    setup_repo
-    echo ""
+
+    # Setup environment
     setup_env
     echo ""
-    install_deps
+
+    # Create logs directory
+    mkdir -p "$INSTALL_DIR/logs"
+
+    # Install service
+    install_service
     echo ""
 
-    if install_service; then
-        create_launcher
+    # Create launcher
+    create_launcher
 
-        echo ""
-        echo "╔══════════════════════════════════════════╗"
-        echo "║         🎉 Setup Complete! 🎉            ║"
-        echo "╚══════════════════════════════════════════╝"
-        echo ""
-        log_success "CC-IM is installed as a background service!"
-        echo ""
-        log_info "Quick Commands:"
-        echo "  cc-im start    - Start the service"
-        echo "  cc-im stop     - Stop the service"
-        echo "  cc-im restart  - Restart the service"
-        echo "  cc-im status   - Check service status"
-        echo "  cc-im logs     - View logs"
-        echo ""
-        log_info "Service Status:"
-        cc-im status 2>/dev/null || true
-        echo ""
-        log_info "To start the service now, run: cc-im start"
-    else
-        log_warn "Service installation failed. You can still run the bot manually:"
-        echo "  cd $INSTALL_DIR && bun run start"
-    fi
+    echo ""
+    echo "╔══════════════════════════════════════════╗"
+    echo "║         🎉 Setup Complete! 🎉            ║"
+    echo "╚══════════════════════════════════════════╝"
+    echo ""
+    log_success "CC-IM is installed!"
+    echo ""
+    log_info "Quick Commands:"
+    echo "  cc-im start    - Start the service"
+    echo "  cc-im stop     - Stop the service"
+    echo "  cc-im restart  - Restart the service"
+    echo "  cc-im status   - Check service status"
+    echo "  cc-im logs     - View logs"
+    echo "  cc-im update   - Update to latest version"
+    echo ""
+    log_info "To start the service now, run: cc-im start"
 }
 
 if [[ ${#BASH_SOURCE[@]} -eq 0 || "${BASH_SOURCE[0]}" == "$0" ]]; then
