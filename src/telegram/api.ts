@@ -1,5 +1,6 @@
 import type { TextWithEntities } from "@grammyjs/parse-mode";
 import { Bot, type InlineKeyboard } from "grammy";
+import type { MessageReactionEmoji } from "./presence.ts";
 
 type SendMessageOptions = {
   replyMarkup?: InlineKeyboard;
@@ -70,6 +71,14 @@ export class TelegramApi {
 
   async sendTyping(chatId: number): Promise<void> {
     await this.bot.api.sendChatAction(chatId, "typing");
+  }
+
+  async setMessageReaction(
+    chatId: number,
+    messageId: number,
+    emoji: MessageReactionEmoji,
+  ): Promise<void> {
+    await this.bot.api.setMessageReaction(chatId, messageId, [{ type: "emoji", emoji }]);
   }
 
   async setMyCommands(commands: Array<{ command: string; description: string }>): Promise<void> {

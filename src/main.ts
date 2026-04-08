@@ -4,6 +4,7 @@ import { Bridge } from "./bridge/bridge.ts";
 import { Logger } from "./logger.ts";
 import { runStartupChecks } from "./startup-check.ts";
 import { TelegramApi } from "./telegram/api.ts";
+import { buildStartupNotification, pickMessageReactionEmoji } from "./telegram/presence.ts";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -31,6 +32,11 @@ async function main(): Promise<void> {
       if (!text) {
         return;
       }
+      await telegram.setMessageReaction(
+        ctx.chat.id,
+        ctx.message.message_id,
+        pickMessageReactionEmoji(),
+      );
       await bridge.handleMessage({
         chatId: ctx.chat.id,
         messageId: ctx.message.message_id,
@@ -81,8 +87,23 @@ async function main(): Promise<void> {
   });
 
   await telegram.bot.start({
-    onStart: (botInfo) => {
+    onStart: async (botInfo) => {
       logger.info("telegram polling started", { username: botInfo.username });
+      try {
+        await telegram.sendMessage(
+          config.telegramAllowedChatId,
+          buildStartupNotification({
+            provider: config.agentProvider,
+            username: botInfo.username,
+            workspaceRoot: config.workspaceRoot,
+          }),
+          { parseMode: "HTML" },
+        );
+      } catch (error) {
+        logger.error("failed to send startup notification", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     },
   });
 }

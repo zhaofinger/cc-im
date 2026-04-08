@@ -230,6 +230,7 @@ describe("Bridge", () => {
         (s: any) => s.type === "send" && s.text.toString().includes("CC-IM Status"),
       );
       expect(sent).toBeDefined();
+      expect((sent as any).text).toContain("›› bypass permissions on");
     });
 
     test("should handle /stop command with no active run", async () => {
@@ -330,9 +331,12 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.toString().includes("Workspace selected"),
+        (s: any) => s.type === "send" && s.text.toString().includes("Claude Code"),
       );
       expect(sent).toBeDefined();
+      expect((sent as any).text).toContain("workspace1 no-git");
+      expect((sent as any).text).toContain("›› bypass permissions on");
+      expect((sent as any).text).toContain("<b>State</b>");
     });
 
     test("should handle command page navigation", async () => {
@@ -489,6 +493,22 @@ describe("Bridge", () => {
       expect(text).toContain("<b><code>·</code> Claude Code</b>");
       expect(text).toContain("workspace1 main ✓");
       expect(text).toContain("›› bypass permissions on");
+    });
+
+    test("should render shared status card sections consistently", () => {
+      const text = (bridge as any).renderStatusCard({
+        title: "<b>📊 CC-IM Status</b>",
+        workspaceStatusLine: "workspace1 main ✓",
+        sessionId: "session-123",
+        sections: [{ heading: "State", body: "<blockquote>running</blockquote>" }],
+      });
+
+      expect(text).toContain("<b>📊 CC-IM Status</b>");
+      expect(text).toContain("<i>workspace1 main ✓</i>");
+      expect(text).toContain("<i>›› bypass permissions on</i>");
+      expect(text).toContain("<code>session-123</code>");
+      expect(text).toContain("<b>State</b>");
+      expect(text).toContain("<blockquote>running</blockquote>");
     });
 
     test("should render initial progress text with separate tool blockquotes", () => {

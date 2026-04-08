@@ -10,6 +10,7 @@ const createMockBot = () => ({
     editMessageText: mock(() => Promise.resolve()),
     answerCallbackQuery: mock(() => Promise.resolve()),
     sendChatAction: mock(() => Promise.resolve()),
+    setMessageReaction: mock(() => Promise.resolve()),
     setMyCommands: mock(() => Promise.resolve()),
   },
 });
@@ -168,6 +169,16 @@ describe("TelegramApi", () => {
       await api.sendTyping(456);
 
       expect(mockBot.api.sendChatAction).toHaveBeenCalledWith(456, "typing");
+    });
+  });
+
+  describe("setMessageReaction", () => {
+    test("should set emoji reaction on a message", async () => {
+      await api.setMessageReaction(456, 789, "👀");
+
+      expect(mockBot.api.setMessageReaction).toHaveBeenCalledWith(456, 789, [
+        { type: "emoji", emoji: "👀" },
+      ]);
     });
   });
 
