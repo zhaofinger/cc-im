@@ -3,13 +3,13 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v0.1.0)'
+        description: "Version tag (e.g., v0.1.0)"
         required: false
-        default: ''
+        default: ""
 
 permissions:
   contents: write
@@ -20,16 +20,16 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x64
+            target: bun-linux-x64
             name: linux-x64
-          - os: ubuntu-24.04-arm
-            target: arm64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
             name: linux-arm64
           - os: macos-latest
-            target: x64
+            target: bun-darwin-x64
             name: darwin-x64
           - os: macos-latest
-            target: arm64
+            target: bun-darwin-arm64
             name: darwin-arm64
 
     runs-on: ${{ matrix.os }}
@@ -47,7 +47,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build binary
-        run: bun build --compile src/main.ts --outfile cc-im-${{ matrix.name }}
+        run: bun build --compile src/main.ts --target=${{ matrix.target }} --outfile cc-im-${{ matrix.name }}
 
       - name: Create archive
         run: |
@@ -62,10 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cc-im-${{ matrix.name }}
-          path: |
-            cc-im-${{ matrix.name }}.tar.gz
-            cc-im-${{ matrix.name }}.zip
-          if-no-files-found: ignore
+          path: cc-im-${{ matrix.name }}.tar.gz
 
   release:
     needs: build
@@ -77,9 +74,10 @@ jobs:
         with:
           path: ./artifacts
           pattern: cc-im-*
+          merge-multiple: true
 
       - name: Display artifacts
-        run: ls -la ./artifacts/*
+        run: ls -la ./artifacts/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -89,5 +87,5 @@ jobs:
           name: Release ${{ github.event.inputs.version || github.ref_name }}
           draft: false
           prerelease: false
-          files: ./artifacts/**/*
+          files: ./artifacts/*
           generate_release_notes: true
