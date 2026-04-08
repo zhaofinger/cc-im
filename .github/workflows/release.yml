@@ -15,25 +15,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-            name: linux-x64
-          - os: ubuntu-latest
-            target: bun-linux-arm64
-            name: linux-arm64
-          - os: macos-latest
-            target: bun-darwin-x64
-            name: darwin-x64
-          - os: macos-latest
-            target: bun-darwin-arm64
-            name: darwin-arm64
-
-    runs-on: ${{ matrix.os }}
-
+  build-linux-x64:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,44 +26,113 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Configure Bun registry
-        run: |
-          cat > bunfig.toml << 'EOF'
-          [install]
-          registry = "https://registry.npmmirror.com"
-          EOF
-          cat bunfig.toml
-
       - name: Install dependencies
-        env:
-          BUN_CONFIG_REGISTRY: https://npm.registry.github.com
         run: |
-          for i in 1 2 3; do
-            bun install && break
-            echo "Install failed, retrying in 5s... (attempt $i/3)"
-            sleep 5
-          done
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache
 
       - name: Build binary
-        run: bun build --compile src/main.ts --target=${{ matrix.target }} --outfile cc-im-${{ matrix.name }}
+        run: bun build --compile src/main.ts --target=bun-linux-x64 --outfile cc-im-linux-x64
 
       - name: Create archive
-        run: |
-          if [[ "${{ matrix.name }}" == *"windows"* ]]; then
-            zip cc-im-${{ matrix.name }}.zip cc-im-${{ matrix.name }}.exe
-          else
-            tar -czf cc-im-${{ matrix.name }}.tar.gz cc-im-${{ matrix.name }}
-          fi
-        shell: bash
+        run: tar -czf cc-im-linux-x64.tar.gz cc-im-linux-x64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cc-im-${{ matrix.name }}
-          path: cc-im-${{ matrix.name }}.tar.gz
+          name: cc-im-linux-x64
+          path: cc-im-linux-x64.tar.gz
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache
+
+      - name: Build binary
+        run: bun build --compile src/main.ts --target=bun-linux-arm64 --outfile cc-im-linux-arm64
+
+      - name: Create archive
+        run: tar -czf cc-im-linux-arm64.tar.gz cc-im-linux-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-im-linux-arm64
+          path: cc-im-linux-arm64.tar.gz
+
+  build-darwin-x64:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache
+
+      - name: Build binary
+        run: bun build --compile src/main.ts --target=bun-darwin-x64 --outfile cc-im-darwin-x64
+
+      - name: Create archive
+        run: tar -czf cc-im-darwin-x64.tar.gz cc-im-darwin-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-im-darwin-x64
+          path: cc-im-darwin-x64.tar.gz
+
+  build-darwin-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache || \
+          bun install --registry https://registry.npmmirror.com --force --no-cache
+
+      - name: Build binary
+        run: bun build --compile src/main.ts --target=bun-darwin-arm64 --outfile cc-im-darwin-arm64
+
+      - name: Create archive
+        run: tar -czf cc-im-darwin-arm64.tar.gz cc-im-darwin-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-im-darwin-arm64
+          path: cc-im-darwin-arm64.tar.gz
 
   release:
-    needs: build
+    needs: [build-linux-x64, build-linux-arm64, build-darwin-x64, build-darwin-arm64]
     runs-on: ubuntu-latest
 
     steps:
@@ -88,7 +140,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-          pattern: cc-im-*
           merge-multiple: true
 
       - name: Display artifacts
