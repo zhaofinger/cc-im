@@ -60,6 +60,21 @@ cc-im status   # Check service status
 cc-im logs     # View logs
 ```
 
+If `bun install` fails with `UNKNOWN_CERTIFICATE_VERIFICATION_ERROR`, the machine usually lacks the correct CA bundle or is using a proxy/mirror with a custom certificate. Retry the installer with a registry or CA override, for example:
+
+```bash
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | bash
+```
+
+or:
+
+```bash
+SSL_CERT_FILE=/path/to/ca-certificates.crt \
+NODE_EXTRA_CA_CERTS=/path/to/custom-ca.pem \
+curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | bash
+```
+
 ### Manual Installation
 
 If you prefer to install manually:

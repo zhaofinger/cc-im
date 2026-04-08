@@ -23,6 +23,43 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_prompt() { echo -e "${CYAN}[INPUT]${NC} $1"; }
 
+print_dependency_install_help() {
+    echo ""
+    log_error "Dependency installation failed."
+    log_info "If you are behind a proxy, custom CA, or mirror, rerun install.sh with one or more of:"
+    echo "  NPM_CONFIG_REGISTRY=https://registry.npmmirror.com"
+    echo "  SSL_CERT_FILE=/path/to/ca-certificates.crt"
+    echo "  NODE_EXTRA_CA_CERTS=/path/to/custom-ca.pem"
+    echo ""
+    log_info "On Debian/Ubuntu, you may also need:"
+    echo "  sudo apt-get update && sudo apt-get install -y ca-certificates"
+    echo "  sudo update-ca-certificates"
+}
+
+prepare_bun_install_env() {
+    if [[ -n "${CC_IM_NPM_REGISTRY:-}" && -z "${NPM_CONFIG_REGISTRY:-}" ]]; then
+        export NPM_CONFIG_REGISTRY="$CC_IM_NPM_REGISTRY"
+    fi
+}
+
+run_bun_install() {
+    prepare_bun_install_env
+
+    if [[ -n "${NPM_CONFIG_REGISTRY:-}" ]]; then
+        log_info "Using npm registry: $NPM_CONFIG_REGISTRY"
+    fi
+
+    if [[ -n "${SSL_CERT_FILE:-}" ]]; then
+        log_info "Using SSL_CERT_FILE: $SSL_CERT_FILE"
+    fi
+
+    if [[ -n "${NODE_EXTRA_CA_CERTS:-}" ]]; then
+        log_info "Using NODE_EXTRA_CA_CERTS: $NODE_EXTRA_CA_CERTS"
+    fi
+
+    bun install
+}
+
 read_user_input() {
     local __var_name="$1"
     local __input=""
@@ -268,8 +305,25 @@ EOF
 install_deps() {
     log_info "Installing dependencies..."
     cd "$INSTALL_DIR"
-    bun install
-    log_success "Dependencies installed"
+
+    local install_output=""
+    if install_output="$(run_bun_install 2>&1)"; then
+        if [[ -n "$install_output" ]]; then
+            echo "$install_output"
+        fi
+        log_success "Dependencies installed"
+        return 0
+    fi
+
+    if [[ -n "$install_output" ]]; then
+        echo "$install_output"
+    fi
+
+    if grep -Eq "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR|CERTIFICATE_VERIFY_FAILED|SELF_SIGNED_CERT|UNABLE_TO_GET_ISSUER_CERT|unable to verify the first certificate" <<< "$install_output"; then
+        print_dependency_install_help
+    fi
+
+    exit 1
 }
 
 # Install as background service

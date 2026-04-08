@@ -1,5 +1,13 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -71,7 +79,11 @@ describe("install.sh", () => {
   test("runs main when executed from stdin", () => {
     const homeDir = join(tempDir, "home");
     const result = Bun.spawnSync({
-      cmd: ["bash", "-lc", `HOME="${homeDir}" CC_IM_INSTALL_NONINTERACTIVE=1 bash < "${scriptPath}"`],
+      cmd: [
+        "bash",
+        "-lc",
+        `HOME="${homeDir}" CC_IM_INSTALL_NONINTERACTIVE=1 bash < "${scriptPath}"`,
+      ],
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -81,5 +93,65 @@ describe("install.sh", () => {
     const output = `${result.stdout.toString()}\n${result.stderr.toString()}`;
     expect(output).toContain("This script will:");
     expect(output).toContain("Continuing immediately");
+  });
+
+  test("passes custom registry to bun install", () => {
+    const installDir = join(tempDir, "install");
+    const fakeBinDir = join(tempDir, "bin");
+    const envLogPath = join(tempDir, "bun-env.log");
+    mkdirSync(installDir, { recursive: true });
+    mkdirSync(fakeBinDir, { recursive: true });
+    writeFileSync(
+      join(fakeBinDir, "bun"),
+      `#!/bin/bash
+echo "registry=$NPM_CONFIG_REGISTRY" > "${envLogPath}"
+exit 0
+`,
+    );
+    chmodSync(join(fakeBinDir, "bun"), 0o755);
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        `export PATH="${fakeBinDir}:$PATH"; source "${scriptPath}"; INSTALL_DIR="${installDir}"; CC_IM_NPM_REGISTRY="https://registry.npmmirror.com" install_deps`,
+      ],
+      cwd: repoRoot,
+      env: process.env,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(envLogPath, "utf8")).toContain("registry=https://registry.npmmirror.com");
+  });
+
+  test("prints certificate troubleshooting when bun install fails on certificate verification", () => {
+    const installDir = join(tempDir, "install");
+    const fakeBinDir = join(tempDir, "bin");
+    mkdirSync(installDir, { recursive: true });
+    mkdirSync(fakeBinDir, { recursive: true });
+    writeFileSync(
+      join(fakeBinDir, "bun"),
+      `#!/bin/bash
+echo "error: UNKNOWN_CERTIFICATE_VERIFICATION_ERROR downloading tarball markdown-it@14.1.1"
+exit 1
+`,
+    );
+    chmodSync(join(fakeBinDir, "bun"), 0o755);
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        `export PATH="${fakeBinDir}:$PATH"; source "${scriptPath}"; INSTALL_DIR="${installDir}"; install_deps`,
+      ],
+      cwd: repoRoot,
+      env: process.env,
+    });
+
+    const output = `${result.stdout.toString()}\n${result.stderr.toString()}`;
+    expect(result.exitCode).toBe(1);
+    expect(output).toContain("Dependency installation failed.");
+    expect(output).toContain("NPM_CONFIG_REGISTRY=https://registry.npmmirror.com");
+    expect(output).toContain("sudo update-ca-certificates");
   });
 });
