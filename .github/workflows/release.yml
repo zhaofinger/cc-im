@@ -44,10 +44,15 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        env:
-          NPM_CONFIG_REGISTRY: https://registry.npmmirror.com
         run: |
-          bun install || (sleep 5 && bun install) || (sleep 10 && bun install)
+          # Configure npm registry for bun
+          npm config set registry https://registry.npmmirror.com
+          # Install with retry
+          for i in 1 2 3; do
+            bun install && break
+            echo "Install failed, retrying in 5s... (attempt $i/3)"
+            sleep 5
+          done
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=${{ matrix.target }} --outfile cc-im-${{ matrix.name }}
