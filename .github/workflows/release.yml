@@ -28,9 +28,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache
+          # Configure DNS and retry
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i/5..."
+            bun install --force --no-cache --network-concurrency 8 && break
+            sleep 10
+          done
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-linux-x64 --outfile cc-im-linux-x64
@@ -57,9 +60,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache
+          # Configure DNS and retry
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i/5..."
+            bun install --force --no-cache --network-concurrency 8 && break
+            sleep 10
+          done
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-linux-arm64 --outfile cc-im-linux-arm64
@@ -86,9 +92,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache
+          # Configure DNS and retry
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i/5..."
+            bun install --force --no-cache --network-concurrency 8 && break
+            sleep 10
+          done
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-darwin-x64 --outfile cc-im-darwin-x64
@@ -115,9 +124,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache || \
-          bun install --registry https://registry.npmmirror.com --force --no-cache
+          # Configure DNS and retry
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i/5..."
+            bun install --force --no-cache --network-concurrency 8 && break
+            sleep 10
+          done
 
       - name: Build binary
         run: bun build --compile src/main.ts --target=bun-darwin-arm64 --outfile cc-im-darwin-arm64
