@@ -52,9 +52,11 @@ jobs:
           cat bunfig.toml
 
       - name: Install dependencies
+        env:
+          BUN_CONFIG_REGISTRY: https://registry.npmmirror.com
         run: |
           for i in 1 2 3; do
-            bun install --registry https://registry.npmmirror.com && break
+            bun install && break
             echo "Install failed, retrying in 5s... (attempt $i/3)"
             sleep 5
           done
