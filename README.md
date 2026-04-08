@@ -45,10 +45,13 @@ This will automatically:
 - Install bun (if not present)
 - Fall back to the Bun baseline binary on older x64 CPUs that cannot run the default Bun build
 - Clone the repository to `~/.cc-im`
+- Update the existing installation when `~/.cc-im` is already present
 - Guide you through configuration
 - Install dependencies
 - **Install as a background service** (systemd on Linux, launchd on macOS)
+- Build the service `PATH` from your current shell environment and common user bin directories
 - Create a `cc-im` command for service management
+- Restart the service automatically after an update
 
 If your shell cannot provide an interactive TTY, the installer now skips the initial "Press Enter" confirmation automatically. For fully non-interactive installs, pre-set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_ID` before running the command.
 

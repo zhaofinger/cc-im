@@ -43,6 +43,32 @@ detect_os() {
     fi
 }
 
+build_service_path() {
+    local path_parts=()
+    local seen=""
+    local path_entry=""
+    local candidate=""
+
+    while IFS= read -r path_entry; do
+        [[ -z "$path_entry" ]] && continue
+        if [[ ":$seen:" != *":$path_entry:"* ]]; then
+            path_parts+=("$path_entry")
+            seen="${seen}:$path_entry"
+        fi
+    done < <(printf '%s' "${PATH:-}" | tr ':' '\n')
+
+    for candidate in "$HOME/.local/bin" "$HOME/bin" "$HOME/.bun/bin"; do
+        [[ -z "$candidate" ]] && continue
+        if [[ ":$seen:" != *":$candidate:"* ]]; then
+            path_parts+=("$candidate")
+            seen="${seen}:$candidate"
+        fi
+    done
+
+    SERVICE_PATH=$(IFS=:; echo "${path_parts[*]}")
+    log_info "Service PATH: $SERVICE_PATH"
+}
+
 # Check if bun is installed
 check_bun() {
     if command -v bun &> /dev/null; then
@@ -112,6 +138,7 @@ install_linux() {
     USER_NAME=$(whoami)
     GROUP_NAME=$(id -gn)
     HOME_DIR="$HOME"
+    build_service_path
 
     # Copy and customize service file
     SERVICE_FILE="$SERVICE_DIR/$SERVICE_NAME.service"
@@ -130,6 +157,7 @@ install_linux() {
         -e "s|%WORKDIR%|$PROJECT_DIR|g" \
         -e "s|%HOME%|$HOME_DIR|g" \
         -e "s|%BUN_PATH%|$BUN_PATH|g" \
+        -e "s|%SERVICE_PATH%|$SERVICE_PATH|g" \
         -e "s|%LOGDIR%|$LOG_DIR|g" \
         -e "s|%TARGET%|$TARGET|g" \
         "$SCRIPT_DIR/cc-im.service" > "$SERVICE_FILE"
@@ -171,6 +199,7 @@ install_macos() {
     # Get current user info
     USER_NAME=$(whoami)
     HOME_DIR="$HOME"
+    build_service_path
 
     # Copy and customize plist file
     PLIST_FILE="$PLIST_DIR/com.cc-im.app.plist"
@@ -180,6 +209,7 @@ install_macos() {
         -e "s|%WORKDIR%|$PROJECT_DIR|g" \
         -e "s|%HOME%|$HOME_DIR|g" \
         -e "s|%BUN_PATH%|$BUN_PATH|g" \
+        -e "s|%SERVICE_PATH%|$SERVICE_PATH|g" \
         -e "s|%LOGDIR%|$LOG_DIR|g" \
         "$SCRIPT_DIR/com.cc-im.app.plist" > "$PLIST_FILE"
 

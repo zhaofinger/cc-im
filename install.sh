@@ -8,6 +8,7 @@ set -e
 PROJECT_NAME="cc-im"
 REPO_URL="https://github.com/zhaofinger/cc-im.git"
 INSTALL_DIR="$HOME/.cc-im"
+INSTALL_MODE="install"
 
 # Colors
 RED='\033[0;31m'
@@ -315,13 +316,18 @@ check_and_install_bun() {
 # Clone or update repository
 setup_repo() {
     if [[ -d "$INSTALL_DIR/.git" ]]; then
-        log_info "Updating existing installation..."
+        INSTALL_MODE="update"
+        log_info "Existing installation detected at $INSTALL_DIR"
+        log_info "Updating repository..."
         cd "$INSTALL_DIR"
         git pull --ff-only
+        log_success "Repository updated"
     else
+        INSTALL_MODE="install"
         log_info "Cloning repository..."
         rm -rf "$INSTALL_DIR"
         git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+        log_success "Repository cloned"
     fi
     log_success "Repository ready at: $INSTALL_DIR"
 }
@@ -435,6 +441,36 @@ install_service() {
         log_error "Failed to install service"
         return 1
     fi
+}
+
+restart_service() {
+    local OS=$(detect_os)
+
+    if [[ "$INSTALL_MODE" != "update" ]]; then
+        return 0
+    fi
+
+    log_info "Update detected. Restarting service..."
+
+    if [[ "$OS" == "linux" ]]; then
+        if [[ -f "$HOME/.config/systemd/user/cc-im.service" ]]; then
+            systemctl --user daemon-reload
+            systemctl --user reset-failed cc-im 2>/dev/null || true
+            systemctl --user restart cc-im
+            log_success "Service restarted"
+            return 0
+        fi
+    elif [[ "$OS" == "macos" ]]; then
+        if [[ -f "$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
+            launchctl stop com.cc-im.app 2>/dev/null || true
+            launchctl start com.cc-im.app
+            log_success "Service restarted"
+            return 0
+        fi
+    fi
+
+    log_warn "Service restart skipped because no installed service was found."
+    return 0
 }
 
 # Create launcher command
@@ -557,21 +593,34 @@ EOF
 main() {
     print_banner
 
+    check_git
+    echo ""
+    check_and_install_bun
+    echo ""
+
+    if [[ -d "$INSTALL_DIR/.git" ]]; then
+        INSTALL_MODE="update"
+    else
+        INSTALL_MODE="install"
+    fi
+
     log_info "This script will:"
-    echo "  1. Install git (if needed)"
-    echo "  2. Install bun (if needed)"
-    echo "  3. Clone cc-im repository"
-    echo "  4. Configure your bot"
-    echo "  5. Install dependencies"
-    echo "  6. Install as a background service"
+    if [[ "$INSTALL_MODE" == "update" ]]; then
+        echo "  1. Update the existing cc-im installation"
+        echo "  2. Refresh dependencies and service files"
+        echo "  3. Restart the background service"
+    else
+        echo "  1. Install git (if needed)"
+        echo "  2. Install bun (if needed)"
+        echo "  3. Clone cc-im repository"
+        echo "  4. Configure your bot"
+        echo "  5. Install dependencies"
+        echo "  6. Install as a background service"
+    fi
     echo ""
 
     wait_for_confirmation
 
-    echo ""
-    check_git
-    echo ""
-    check_and_install_bun
     echo ""
     setup_repo
     echo ""
@@ -582,6 +631,7 @@ main() {
 
     if install_service; then
         create_launcher
+        restart_service
 
         echo ""
         echo "╔══════════════════════════════════════════╗"
@@ -597,10 +647,15 @@ main() {
         echo "  cc-im status   - Check service status"
         echo "  cc-im logs     - View logs"
         echo ""
-        log_info "Service Status:"
-        cc-im status 2>/dev/null || true
-        echo ""
-        log_info "To start the service now, run: cc-im start"
+        if [[ "$INSTALL_MODE" == "update" ]]; then
+            log_info "Service status after update:"
+            cc-im status 2>/dev/null || true
+        else
+            log_info "Service Status:"
+            cc-im status 2>/dev/null || true
+            echo ""
+            log_info "To start the service now, run: cc-im start"
+        fi
     else
         log_warn "Service installation failed. You can still run the bot manually:"
         echo "  cd $INSTALL_DIR && bun run start"

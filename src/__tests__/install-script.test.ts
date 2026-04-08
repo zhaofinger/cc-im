@@ -203,5 +203,66 @@ describe("install.sh", () => {
     expect(contents).not.toContain("\nUser=");
     expect(contents).not.toContain("\nGroup=");
     expect(contents).toContain(`WorkingDirectory=${projectDir}`);
+    expect(contents).toContain(`Environment="PATH=${fakeBinDir}:`);
+    expect(contents).toContain(`${homeDir}/.local/bin`);
+    expect(contents).toContain(`${homeDir}/bin`);
+    expect(contents).toContain(`${homeDir}/.bun/bin`);
+    expect(contents).not.toContain("%SERVICE_PATH%");
+  });
+
+  test("existing install runs update flow and restarts service", () => {
+    const homeDir = join(tempDir, "home");
+    const installDir = join(homeDir, ".cc-im");
+    const fakeBinDir = join(tempDir, "fake-bin");
+
+    mkdirSync(join(installDir, ".git"), { recursive: true });
+    mkdirSync(fakeBinDir, { recursive: true });
+
+    writeFileSync(
+      join(fakeBinDir, "cc-im"),
+      '#!/bin/bash\nif [[ "$1" == "status" ]]; then\n  echo service-ok\n  exit 0\nfi\nexit 0\n',
+    );
+    chmodSync(join(fakeBinDir, "cc-im"), 0o755);
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        [
+          `HOME="${homeDir}"`,
+          `PATH="${fakeBinDir}:$PATH"`,
+          `source "${scriptPath}"`,
+          "print_banner() { :; }",
+          "wait_for_confirmation() { :; }",
+          'check_git() { echo "git-ok"; }',
+          'check_and_install_bun() { echo "bun-ok"; }',
+          'setup_repo() { INSTALL_MODE="update"; echo "repo-updated"; }',
+          'setup_env() { echo "env-ok"; }',
+          'install_deps() { echo "deps-ok"; }',
+          'install_service() { echo "service-installed"; return 0; }',
+          'create_launcher() { echo "launcher-created"; }',
+          'restart_service() { echo "[INFO] Update detected. Restarting service..."; echo "[SUCCESS] Service restarted"; }',
+          "main",
+        ].join("; "),
+      ],
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const output = `${result.stdout.toString()}\n${result.stderr.toString()}`;
+    expect(output).toContain("Update the existing cc-im installation");
+    expect(output).toContain("Refresh dependencies and service files");
+    expect(output).toContain("Restart the background service");
+    expect(output).toContain("repo-updated");
+    expect(output).toContain("service-installed");
+    expect(output).toContain("Update detected. Restarting service");
+    expect(output).toContain("Service restarted");
+    expect(output).toContain("Service status after update:");
+    expect(output).toContain("service-ok");
   });
 });

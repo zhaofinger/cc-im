@@ -13,7 +13,7 @@ Group=%GROUP%
 WorkingDirectory=%WORKDIR%
 
 # Environment
-Environment="PATH=/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:%HOME%/.bun/bin"
+Environment="PATH=%SERVICE_PATH%"
 Environment="HOME=%HOME%"
 
 # Load env file if exists (systemd will fail silently if file doesn't exist due to the - prefix)

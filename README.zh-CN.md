@@ -49,10 +49,13 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 - 安装 bun（如未安装）
 - 在较老的 x64 CPU 上自动回退到更兼容的 Bun baseline 二进制
 - 克隆仓库到 `~/.cc-im`
+- 如果 `~/.cc-im` 已存在则执行更新
 - 引导配置
 - 安装依赖
 - **安装为后台服务**（Linux 用 systemd，macOS 用 launchd）
+- 基于你当前 shell 的环境和常见用户 bin 目录生成 service PATH
 - 创建 `cc-im` 命令管理服务
+- 在更新完成后自动重启服务
 
 如果你的 shell 无法提供交互式 TTY，安装器会自动跳过开头的“按回车继续”确认。完全无人值守安装时，可以先设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_ALLOWED_CHAT_ID`。
 
