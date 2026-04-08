@@ -54,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: |
           for i in 1 2 3; do
-            bun install && break
+            bun install --registry https://registry.npmmirror.com && break
             echo "Install failed, retrying in 5s... (attempt $i/3)"
             sleep 5
           done
