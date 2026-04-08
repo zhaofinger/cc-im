@@ -197,11 +197,10 @@ describe("runStartupChecks", () => {
       const workspacePassLog = logs.find(
         (l) => l.message === "startup check passed: workspace root",
       );
+      const details = workspacePassLog?.details as { firstWorkspace?: string } | undefined;
       // Should find valid-project
-      expect(workspacePassLog?.details).toHaveProperty("firstWorkspace");
-      expect((workspacePassLog?.details as { firstWorkspace: string }).firstWorkspace).toContain(
-        "valid-project",
-      );
+      expect(details).toHaveProperty("firstWorkspace");
+      expect(details?.firstWorkspace).toContain("valid-project");
     });
   });
 

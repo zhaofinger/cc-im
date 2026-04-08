@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { InlineKeyboard } from "grammy";
 import { buildWorkspaceMenu, buildClaudeCommandsMenu, buildApprovalMenu } from "../menus.ts";
 
 // Helper to get callback_data from button

@@ -2,8 +2,6 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { AppConfig } from "../../config.ts";
-import type { Logger } from "../../logger.ts";
 import type { AgentAdapter } from "../types.ts";
 
 describe("Agent types and contracts", () => {
@@ -24,7 +22,7 @@ describe("Agent types and contracts", () => {
     test("should define probeSlashCommands method", () => {
       // Verify the interface contract exists
       const mockAdapter: AgentAdapter = {
-        probeSlashCommands: async (workspacePath: string) => ({
+        probeSlashCommands: async (_workspacePath: string) => ({
           sessionId: "test-session",
           slashCommands: ["/test"],
         }),
@@ -53,7 +51,7 @@ describe("Agent types and contracts", () => {
 
     test("should return CommandProbe from probeSlashCommands", async () => {
       const mockAdapter: AgentAdapter = {
-        probeSlashCommands: async (workspacePath: string) => ({
+        probeSlashCommands: async (_workspacePath: string) => ({
           sessionId: "session-123",
           slashCommands: ["/commit", "/status"],
         }),

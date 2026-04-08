@@ -10,6 +10,8 @@ const MARKER_STX = "\u0002";
 const MARKER_ETX = "\u0003";
 const CODE_BLOCK_MARKER = `${MARKER_STX}CCIMCB`;
 const INLINE_CODE_MARKER = `${MARKER_ETX}CCIMIC`;
+const CODE_BLOCK_PATTERN = new RegExp(`${MARKER_STX}CCIMCB(\\d+)${MARKER_STX}`, "g");
+const INLINE_CODE_PATTERN = new RegExp(`${MARKER_ETX}CCIMIC(\\d+)${MARKER_ETX}`, "g");
 
 export function markdownToTelegramHtml(md: string): string {
   const codeBlocks: string[] = [];
@@ -39,8 +41,8 @@ export function markdownToTelegramHtml(md: string): string {
   text = text.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, "<i>$1</i>");
   text = text.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
 
-  text = text.replace(/\u0002CCIMCB(\d+)\u0002/g, (_, i) => codeBlocks[Number(i)] || "");
-  text = text.replace(/\u0003CCIMIC(\d+)\u0003/g, (_, i) => inlineCodes[Number(i)] || "");
+  text = text.replace(CODE_BLOCK_PATTERN, (_, i) => codeBlocks[Number(i)] || "");
+  text = text.replace(INLINE_CODE_PATTERN, (_, i) => inlineCodes[Number(i)] || "");
   return text;
 }
 
