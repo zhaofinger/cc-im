@@ -43,11 +43,16 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Configure Bun registry
+        run: |
+          cat > bunfig.toml << 'EOF'
+          [install]
+          registry = "https://registry.npmmirror.com"
+          EOF
+          cat bunfig.toml
+
       - name: Install dependencies
         run: |
-          # Configure npm registry for bun
-          npm config set registry https://registry.npmmirror.com
-          # Install with retry
           for i in 1 2 3; do
             bun install && break
             echo "Install failed, retrying in 5s... (attempt $i/3)"
