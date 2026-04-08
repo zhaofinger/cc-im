@@ -69,6 +69,164 @@ read_optional_input() {
     printf -v "$__var_name" '%s' "$__default_value"
 }
 
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+strip_matching_quotes() {
+    local value="$1"
+
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+        value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+        value="${value:1:${#value}-2}"
+    fi
+
+    printf '%s' "$value"
+}
+
+list_shell_env_files() {
+    printf '%s\n' \
+        "$HOME/.bashrc" \
+        "$HOME/.bash_profile" \
+        "$HOME/.profile" \
+        "$HOME/.zshrc" \
+        "$HOME/.zprofile"
+}
+
+collect_anthropic_var_names() {
+    local names=()
+    local seen=""
+    local line=""
+    local key=""
+    local file=""
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        key="${line%%=*}"
+        if [[ ":$seen:" != *":$key:"* ]]; then
+            names+=("$key")
+            seen="${seen}:$key"
+        fi
+    done < <(env | grep '^ANTHROPIC_' || true)
+
+    while IFS= read -r file; do
+        [[ -f "$file" ]] || continue
+
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(ANTHROPIC_[A-Z0-9_]+)= ]]; then
+                key="${BASH_REMATCH[2]}"
+                if [[ ":$seen:" != *":$key:"* ]]; then
+                    names+=("$key")
+                    seen="${seen}:$key"
+                fi
+            fi
+        done < "$file"
+    done < <(list_shell_env_files)
+
+    printf '%s\n' "${names[@]}"
+}
+
+resolve_anthropic_var() {
+    local key="$1"
+    local env_value="${!key:-}"
+    local file=""
+    local line=""
+    local candidate=""
+
+    if [[ -n "$env_value" ]]; then
+        printf 'env\t%s' "$env_value"
+        return 0
+    fi
+
+    while IFS= read -r file; do
+        [[ -f "$file" ]] || continue
+
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?${key}=(.*)$ ]]; then
+                candidate="${BASH_REMATCH[2]}"
+                candidate="${candidate%%#*}"
+                candidate="$(trim_whitespace "$candidate")"
+                candidate="$(strip_matching_quotes "$candidate")"
+                if [[ -n "$candidate" ]]; then
+                    printf '%s\t%s' "$file" "$candidate"
+                    return 0
+                fi
+            fi
+        done < "$file"
+    done < <(list_shell_env_files)
+
+    return 1
+}
+
+upsert_env_file_var() {
+    local env_file="$1"
+    local key="$2"
+    local value="$3"
+    local temp_file
+
+    mkdir -p "$(dirname "$env_file")"
+    touch "$env_file"
+    temp_file=$(mktemp "${env_file}.XXXXXX")
+
+    awk -v key="$key" -v value="$value" '
+        BEGIN { updated = 0 }
+        index($0, key "=") == 1 {
+            if (!updated) {
+                print key "=" value
+                updated = 1
+            }
+            next
+        }
+        { print }
+        END {
+            if (!updated) {
+                print key "=" value
+            }
+        }
+    ' "$env_file" > "$temp_file"
+
+    mv "$temp_file" "$env_file"
+}
+
+sync_anthropic_env_vars() {
+    local env_file="$INSTALL_DIR/.env"
+    local key=""
+    local resolved=""
+    local source_label=""
+    local value=""
+    local synced_any=0
+
+    if [[ ! -f "$env_file" ]]; then
+        return 0
+    fi
+
+    log_info "Syncing ANTHROPIC_* variables into $env_file"
+
+    while IFS= read -r key; do
+        [[ -n "$key" ]] || continue
+
+        if resolved="$(resolve_anthropic_var "$key")"; then
+            source_label="${resolved%%$'\t'*}"
+            value="${resolved#*$'\t'}"
+            upsert_env_file_var "$env_file" "$key" "$value"
+            if [[ "$source_label" == "env" ]]; then
+                log_info "Synced $key from current shell environment"
+            else
+                log_info "Synced $key from $source_label"
+            fi
+            synced_any=1
+        fi
+    done < <(collect_anthropic_var_names)
+
+    if [[ "$synced_any" -eq 0 ]]; then
+        log_info "No ANTHROPIC_* variables found in the current shell or shell config files."
+    fi
+}
+
 wait_for_confirmation() {
     local _confirmation=""
 
@@ -625,6 +783,8 @@ main() {
     setup_repo
     echo ""
     setup_env
+    echo ""
+    sync_anthropic_env_vars
     echo ""
     install_deps
     echo ""

@@ -47,6 +47,7 @@ This will automatically:
 - Clone the repository to `~/.cc-im`
 - Update the existing installation when `~/.cc-im` is already present
 - Guide you through configuration
+- Sync `ANTHROPIC_*` variables from your current shell or common shell config files into `~/.cc-im/.env`
 - Install dependencies
 - **Install as a background service** (systemd on Linux, launchd on macOS)
 - Build the service `PATH` from your current shell environment and common user bin directories

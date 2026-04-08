@@ -51,6 +51,7 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 - 克隆仓库到 `~/.cc-im`
 - 如果 `~/.cc-im` 已存在则执行更新
 - 引导配置
+- 将当前 shell 或常见 shell 配置文件中的 `ANTHROPIC_*` 变量同步到 `~/.cc-im/.env`
 - 安装依赖
 - **安装为后台服务**（Linux 用 systemd，macOS 用 launchd）
 - 基于你当前 shell 的环境和常见用户 bin 目录生成 service PATH

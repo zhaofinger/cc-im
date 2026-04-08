@@ -77,6 +77,76 @@ describe("install.sh", () => {
     expect(contents).toContain(`LOG_DIR=${logDir}`);
   });
 
+  test("syncs anthropic variables from current shell environment into .env", () => {
+    const installDir = join(tempDir, ".cc-im");
+    const envFile = join(installDir, ".env");
+
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(envFile, "TELEGRAM_BOT_TOKEN=test\n");
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        `source "${scriptPath}"; INSTALL_DIR="${installDir}"; sync_anthropic_env_vars`,
+      ],
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        ANTHROPIC_API_KEY: "env-api-key",
+        ANTHROPIC_BASE_URL: "https://anthropic.example",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+
+    const contents = readFileSync(envFile, "utf8");
+    expect(contents).toContain("ANTHROPIC_API_KEY=env-api-key");
+    expect(contents).toContain("ANTHROPIC_BASE_URL=https://anthropic.example");
+    expect(result.stdout.toString()).toContain(
+      "Synced ANTHROPIC_API_KEY from current shell environment",
+    );
+  });
+
+  test("syncs anthropic variables from shell rc files into .env", () => {
+    const homeDir = join(tempDir, "home");
+    const installDir = join(homeDir, ".cc-im");
+    const envFile = join(installDir, ".env");
+
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(envFile, "TELEGRAM_BOT_TOKEN=test\n");
+    writeFileSync(
+      join(homeDir, ".bashrc"),
+      'export ANTHROPIC_API_KEY="bashrc-api-key"\nANTHROPIC_AUTH_TOKEN=token-from-bashrc\n',
+    );
+
+    const result = Bun.spawnSync({
+      cmd: [
+        "bash",
+        "-lc",
+        `HOME="${homeDir}" source "${scriptPath}"; INSTALL_DIR="${installDir}"; sync_anthropic_env_vars`,
+      ],
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        HOME: homeDir,
+        ANTHROPIC_API_KEY: "",
+        ANTHROPIC_AUTH_TOKEN: "",
+        ANTHROPIC_BASE_URL: "",
+        ANTHROPIC_MODEL: "",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+
+    const contents = readFileSync(envFile, "utf8");
+    expect(contents).toContain("ANTHROPIC_API_KEY=bashrc-api-key");
+    expect(contents).toContain("ANTHROPIC_AUTH_TOKEN=token-from-bashrc");
+    expect(result.stdout.toString()).toContain(
+      `Synced ANTHROPIC_API_KEY from ${join(homeDir, ".bashrc")}`,
+    );
+  });
+
   test("runs main when executed from stdin", () => {
     const homeDir = join(tempDir, "home");
     const result = Bun.spawnSync({
@@ -238,6 +308,7 @@ describe("install.sh", () => {
           'check_and_install_bun() { echo "bun-ok"; }',
           'setup_repo() { INSTALL_MODE="update"; echo "repo-updated"; }',
           'setup_env() { echo "env-ok"; }',
+          'sync_anthropic_env_vars() { echo "anthropic-synced"; }',
           'install_deps() { echo "deps-ok"; }',
           'install_service() { echo "service-installed"; return 0; }',
           'create_launcher() { echo "launcher-created"; }',
@@ -259,6 +330,7 @@ describe("install.sh", () => {
     expect(output).toContain("Refresh dependencies and service files");
     expect(output).toContain("Restart the background service");
     expect(output).toContain("repo-updated");
+    expect(output).toContain("anthropic-synced");
     expect(output).toContain("service-installed");
     expect(output).toContain("Update detected. Restarting service");
     expect(output).toContain("Service restarted");
