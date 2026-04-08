@@ -28,6 +28,49 @@ is_noninteractive() {
     [[ "${CC_IM_INSTALL_NONINTERACTIVE:-}" == "1" || ! -t 0 ]]
 }
 
+can_prompt_for_input() {
+    if [[ "${CC_IM_INSTALL_NONINTERACTIVE:-}" == "1" ]]; then
+        return 1
+    fi
+
+    [[ -t 0 || -r "${CC_IM_INSTALL_TTY_PATH:-/dev/tty}" ]]
+}
+
+init_prompt_input() {
+    if [[ "${CC_IM_INSTALL_PROMPT_READY:-0}" == "1" ]]; then
+        return 0
+    fi
+
+    if [[ -t 0 ]]; then
+        CC_IM_INSTALL_PROMPT_USE_STDIN=1
+        CC_IM_INSTALL_PROMPT_READY=1
+        return 0
+    fi
+
+    local tty_path="${CC_IM_INSTALL_TTY_PATH:-/dev/tty}"
+    if [[ -r "$tty_path" ]]; then
+        exec 3< "$tty_path"
+        CC_IM_INSTALL_PROMPT_USE_STDIN=0
+        CC_IM_INSTALL_PROMPT_READY=1
+        return 0
+    fi
+
+    return 1
+}
+
+read_user_input() {
+    local __var_name="$1"
+
+    init_prompt_input || return 1
+
+    if [[ "${CC_IM_INSTALL_PROMPT_USE_STDIN:-0}" == "1" ]]; then
+        IFS= read -r "$__var_name"
+        return $?
+    fi
+
+    IFS= read -r "$__var_name" <&3
+}
+
 # Detect OS and architecture
 detect_platform() {
     local OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -151,7 +194,7 @@ setup_env() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
-    if is_noninteractive; then
+    if ! can_prompt_for_input; then
         local TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
         local TELEGRAM_ALLOWED_CHAT_ID="${TELEGRAM_ALLOWED_CHAT_ID:-}"
         local WORKSPACE_ROOT_VALUE="${WORKSPACE_ROOT:-/code_workspace}"
@@ -194,7 +237,7 @@ EOF
     while [[ -z "$TELEGRAM_BOT_TOKEN" ]]; do
         log_prompt "Enter your Telegram Bot Token (required):"
         echo "  💡 Get it from @BotFather: https://t.me/botfather"
-        read -r TELEGRAM_BOT_TOKEN
+        read_user_input TELEGRAM_BOT_TOKEN
         if [[ -z "$TELEGRAM_BOT_TOKEN" ]]; then
             log_error "Telegram Bot Token is required"
         fi
@@ -206,7 +249,7 @@ EOF
     while [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; do
         log_prompt "Enter your Telegram Chat ID (required):"
         echo "  💡 Use @userinfobot to get your chat ID"
-        read -r TELEGRAM_ALLOWED_CHAT_ID
+        read_user_input TELEGRAM_ALLOWED_CHAT_ID
         if [[ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]]; then
             log_error "Telegram Chat ID is required"
         fi
@@ -216,7 +259,7 @@ EOF
     echo ""
     log_prompt "Enter workspace root directory (default: /code_workspace):"
     echo "  💡 This directory should contain your code projects"
-    read -r WORKSPACE_ROOT
+    read_user_input WORKSPACE_ROOT
     WORKSPACE_ROOT=${WORKSPACE_ROOT:-/code_workspace}
 
     # Create workspace if not exists
@@ -228,7 +271,7 @@ EOF
     # Optional: Log Directory
     echo ""
     log_prompt "Enter log directory (default: $INSTALL_DIR/logs):"
-    read -r LOG_DIR
+    read_user_input LOG_DIR
     LOG_DIR=${LOG_DIR:-$INSTALL_DIR/logs}
 
     # Create .env file

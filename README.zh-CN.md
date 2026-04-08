@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 - **安装为后台服务**（Linux 用 systemd，macOS 用 launchd）
 - 创建 `cc-im` 命令管理服务
 
-如果当前 shell 没有可交互 TTY，安装脚本会自动跳过最开始的“按 Enter 继续”确认。若要完全非交互安装，请在运行前预先设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_ALLOWED_CHAT_ID`。
+当你通过 `curl ... | bash` 运行安装脚本时，脚本现在会回退到 `/dev/tty` 读取配置输入，因此仍然可以正常填写 Bot Token 和 Chat ID。只有在当前 shell 确实完全没有可交互 TTY 时，安装脚本才会跳过最开始的“按 Enter 继续”确认，并要求你提前设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_ALLOWED_CHAT_ID`。
 
 安装完成后，使用以下命令：
 
