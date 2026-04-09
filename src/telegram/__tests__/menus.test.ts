@@ -156,28 +156,31 @@ describe("buildClaudeCommandsMenu", () => {
 });
 
 describe("buildApprovalMenu", () => {
-  test("should create approval and reject buttons", () => {
+  test("should create approval, edit, and reject buttons", () => {
     const menu = buildApprovalMenu("approval-123");
     expect(menu.inline_keyboard.length).toBe(1);
-    expect(menu.inline_keyboard[0].length).toBe(2);
+    expect(menu.inline_keyboard[0].length).toBe(3);
   });
 
   test("should set correct button text", () => {
     const menu = buildApprovalMenu("approval-123");
     expect(menu.inline_keyboard[0][0].text).toBe("Approve once");
-    expect(menu.inline_keyboard[0][1].text).toBe("Reject");
+    expect(menu.inline_keyboard[0][1].text).toBe("Edit input");
+    expect(menu.inline_keyboard[0][2].text).toBe("Reject");
   });
 
   test("should set correct callback data", () => {
     const menu = buildApprovalMenu("approval-123");
     expect(getCallbackData(menu.inline_keyboard[0][0])).toBe("approve:approval-123");
-    expect(getCallbackData(menu.inline_keyboard[0][1])).toBe("reject:approval-123");
+    expect(getCallbackData(menu.inline_keyboard[0][1])).toBe("edit:approval-123");
+    expect(getCallbackData(menu.inline_keyboard[0][2])).toBe("reject:approval-123");
   });
 
   test("should handle different approval IDs", () => {
     const menu = buildApprovalMenu("custom-id-abc");
     expect(getCallbackData(menu.inline_keyboard[0][0])).toBe("approve:custom-id-abc");
-    expect(getCallbackData(menu.inline_keyboard[0][1])).toBe("reject:custom-id-abc");
+    expect(getCallbackData(menu.inline_keyboard[0][1])).toBe("edit:custom-id-abc");
+    expect(getCallbackData(menu.inline_keyboard[0][2])).toBe("reject:custom-id-abc");
   });
 
   test("should handle approval ID with special characters", () => {

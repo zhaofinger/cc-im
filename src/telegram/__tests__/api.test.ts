@@ -1,8 +1,21 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test";
 import { TelegramApi } from "../api.ts";
 
+type MockBot = {
+  api: {
+    sendMessage: ReturnType<typeof mock>;
+    sendMessageDraft: ReturnType<typeof mock>;
+    getMe: ReturnType<typeof mock>;
+    editMessageText: ReturnType<typeof mock>;
+    answerCallbackQuery: ReturnType<typeof mock>;
+    sendChatAction: ReturnType<typeof mock>;
+    setMessageReaction: ReturnType<typeof mock>;
+    setMyCommands: ReturnType<typeof mock>;
+  };
+};
+
 // Create a mock for Grammy's Bot
-const createMockBot = () => ({
+const createMockBot = (): MockBot => ({
   api: {
     sendMessage: mock(() => Promise.resolve({ message_id: 123 })),
     sendMessageDraft: mock(() => Promise.resolve()),
@@ -21,9 +34,12 @@ describe("TelegramApi", () => {
 
   beforeEach(() => {
     mockBot = createMockBot();
-    // Override the bot property directly
     api = new TelegramApi("test-token");
-    (api as any).bot = mockBot;
+    Object.defineProperty(api, "bot", {
+      value: mockBot as unknown as TelegramApi["bot"],
+      configurable: true,
+      writable: true,
+    });
   });
 
   describe("constructor", () => {
@@ -101,8 +117,7 @@ describe("TelegramApi", () => {
     });
 
     test("should handle missing username", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mockBot.api.getMe = mock(() => Promise.resolve({ id: 12345, username: undefined }) as any);
+      mockBot.api.getMe = mock(() => Promise.resolve({ id: 12345, username: undefined }));
       const result = await api.getMe();
 
       expect(result.username).toBeUndefined();

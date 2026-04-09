@@ -30,7 +30,7 @@ export class CodexCliRunner implements CliRunner {
     }
 
     // 危险模式：--full-auto 自动批准所有操作
-    if (options.mode === "dangerous") {
+    if (options.mode === "bypassPermissions") {
       args.push("--full-auto");
     }
 
@@ -48,6 +48,8 @@ export class CodexCliRunner implements CliRunner {
     return {
       stdout: proc.stdout,
       stderr: proc.stderr,
+      writeStdin: () => {},
+      closeStdin: () => {},
       kill: () => {
         proc.kill();
       },

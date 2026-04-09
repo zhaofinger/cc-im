@@ -1,9 +1,6 @@
 import { InlineKeyboard } from "grammy";
+import type { PermissionMode } from "../types.ts";
 import { chunk } from "../utils/array.ts";
-
-// TODO: Implement buildModeMenu when interactive approval modes are supported
-// Currently only dangerous mode (--dangerously-skip-permissions) is used
-// See types.ts for mode definitions: default | auto_edit | plan | dangerous
 
 export function buildWorkspaceMenu(workspaces: string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
@@ -45,5 +42,24 @@ export function buildClaudeCommandsMenu(
 export function buildApprovalMenu(approvalId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("Approve once", `approve:${approvalId}`)
+    .text("Edit input", `edit:${approvalId}`)
     .text("Reject", `reject:${approvalId}`);
+}
+
+export function buildModeMenu(_currentMode: PermissionMode): InlineKeyboard {
+  const modes: Array<{ label: string; value: PermissionMode }> = [
+    { label: "default mode on", value: "default" },
+    { label: "⏵︎⏵︎ acceptEdits mode on", value: "acceptEdits" },
+    { label: "auto mode on", value: "auto" },
+    { label: "⏵︎⏵︎ dontAsk mode on", value: "dontAsk" },
+    { label: "plan mode on", value: "plan" },
+    { label: "⏵︎⏵︎ bypassPermissions mode on", value: "bypassPermissions" },
+  ];
+
+  const keyboard = new InlineKeyboard();
+  for (const mode of modes) {
+    keyboard.text(mode.label, `mode:${mode.value}`);
+    keyboard.row();
+  }
+  return keyboard;
 }

@@ -1,9 +1,22 @@
 import type { TextWithEntities } from "@grammyjs/parse-mode";
 import { Bot, type InlineKeyboard } from "grammy";
+import type {
+  ForceReply,
+  InlineKeyboardMarkup,
+  ReplyKeyboardMarkup,
+  ReplyKeyboardRemove,
+} from "grammy/types";
 import type { MessageReactionEmoji } from "./presence.ts";
 
+type ReplyMarkup =
+  | InlineKeyboard
+  | InlineKeyboardMarkup
+  | ReplyKeyboardMarkup
+  | ReplyKeyboardRemove
+  | ForceReply;
+
 type SendMessageOptions = {
-  replyMarkup?: InlineKeyboard;
+  replyMarkup?: ReplyMarkup;
   parseMode?: "HTML" | "MarkdownV2";
 };
 
@@ -54,7 +67,7 @@ export class TelegramApi {
     try {
       await this.bot.api.editMessageText(chatId, messageId, payload.text, {
         entities: payload.entities,
-        reply_markup: normalized.replyMarkup,
+        reply_markup: normalized.replyMarkup as InlineKeyboard | InlineKeyboardMarkup | undefined,
         parse_mode: payload.entities ? undefined : normalized.parseMode,
       });
     } catch (error) {

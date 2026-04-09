@@ -77,13 +77,22 @@ async function main(): Promise<void> {
     }
   });
 
-  process.on("SIGINT", () => {
-    logger.info("received SIGINT, stopping bot");
+  let isShuttingDown = false;
+  const shutdown = (signal: "SIGINT" | "SIGTERM") => {
+    if (isShuttingDown) {
+      return;
+    }
+    isShuttingDown = true;
+    logger.info(`received ${signal}, stopping bot`);
     telegram.bot.stop();
+    process.exit(0);
+  };
+
+  process.once("SIGINT", () => {
+    shutdown("SIGINT");
   });
-  process.on("SIGTERM", () => {
-    logger.info("received SIGTERM, stopping bot");
-    telegram.bot.stop();
+  process.once("SIGTERM", () => {
+    shutdown("SIGTERM");
   });
 
   await telegram.bot.start({
@@ -108,4 +117,7 @@ async function main(): Promise<void> {
   });
 }
 
-void main();
+void main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

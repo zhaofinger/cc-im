@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { ApprovalDecision } from "../../types.ts";
 import { MemoryState } from "../memory-state.ts";
 
 describe("MemoryState", () => {
@@ -50,6 +51,7 @@ describe("MemoryState", () => {
           chatId: 123456,
           selectedWorkspace: "/path/to/workspace",
           selectedWorkspaceName: "my-workspace",
+          permissionMode: "plan",
         }),
       );
 
@@ -57,6 +59,7 @@ describe("MemoryState", () => {
       const state = memoryState2.getChatState(123456);
       expect(state.selectedWorkspace).toBe("/path/to/workspace");
       expect(state.selectedWorkspaceName).toBe("my-workspace");
+      expect(state.permissionMode).toBe("plan");
     });
 
     test("should ignore file if chatId doesn't match", () => {
@@ -121,6 +124,13 @@ describe("MemoryState", () => {
     });
   });
 
+  describe("setPermissionMode", () => {
+    test("should set permission mode", () => {
+      const state = memoryState.setPermissionMode(123456, "acceptEdits");
+      expect(state.permissionMode).toBe("acceptEdits");
+    });
+  });
+
   describe("setActiveRun", () => {
     test("should set active run", () => {
       const state = memoryState.setActiveRun(123456, "run-123", "running");
@@ -133,7 +143,11 @@ describe("MemoryState", () => {
       memoryState.setPendingApproval(123456, {
         id: "approval-1",
         runId: "run-123",
-        summary: "test",
+        request: {
+          approvalId: "approval-1",
+          toolName: "Bash",
+          input: {},
+        },
         createdAt: Date.now(),
       });
 
@@ -155,7 +169,11 @@ describe("MemoryState", () => {
       const approval = {
         id: "approval-1",
         runId: "run-123",
-        summary: "test approval",
+        request: {
+          approvalId: "approval-1",
+          toolName: "Bash",
+          input: {},
+        },
         createdAt: Date.now(),
       };
       const state = memoryState.setPendingApproval(123456, approval);
@@ -167,7 +185,11 @@ describe("MemoryState", () => {
       memoryState.setPendingApproval(123456, {
         id: "approval-1",
         runId: "run-123",
-        summary: "test",
+        request: {
+          approvalId: "approval-1",
+          toolName: "Bash",
+          input: {},
+        },
         createdAt: Date.now(),
       });
 
@@ -181,7 +203,11 @@ describe("MemoryState", () => {
       memoryState.setPendingApproval(123456, {
         id: "approval-1",
         runId: "run-123",
-        summary: "test",
+        request: {
+          approvalId: "approval-1",
+          toolName: "Bash",
+          input: {},
+        },
         createdAt: Date.now(),
       });
 
@@ -190,11 +216,15 @@ describe("MemoryState", () => {
     });
 
     test("should store resolve function", () => {
-      const resolveFn = (_decision: "approve" | "reject") => {};
+      const resolveFn = (_decision: ApprovalDecision) => {};
       const approval = {
         id: "approval-1",
         runId: "run-123",
-        summary: "test",
+        request: {
+          approvalId: "approval-1",
+          toolName: "Bash",
+          input: {},
+        },
         createdAt: Date.now(),
         resolve: resolveFn,
       };

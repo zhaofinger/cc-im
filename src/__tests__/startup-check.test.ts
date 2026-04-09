@@ -16,19 +16,25 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logDir: join(tmpdir(), `startup-logs-${Date.now()}`),
     agentProvider: "claude",
     claudeCommandsPageSize: 8,
+    claudeApprovalTimeoutMs: 300000,
+    claudeInputEditTimeoutMs: 300000,
+    claudeDefaultPermissionMode: "default",
+    telegramProgressDebounceMs: 2000,
+    telegramProgressMinIntervalMs: 10000,
     ...overrides,
-  };
+  } as AppConfig;
 }
 
 function createMockTelegramApi(): TelegramApi {
   return {
-    bot: {} as any,
+    bot: {} as unknown as TelegramApi["bot"],
     sendMessage: async () => 123,
     sendMessageDraft: async () => {},
     getMe: async () => ({ id: 12345, username: "testbot" }),
     editMessageText: async () => {},
     answerCallbackQuery: async () => {},
     sendTyping: async () => {},
+    setMessageReaction: async () => {},
     setMyCommands: async () => {},
   } as unknown as TelegramApi;
 }

@@ -80,6 +80,7 @@ describe("Agent types and contracts", () => {
         runId: "run-123",
         workspacePath: "/workspace",
         message: "Hello",
+        mode: "default",
         onEvent: () => {},
       });
 

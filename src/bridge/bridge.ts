@@ -9,9 +9,17 @@ import { TelegramApi } from "../telegram/api.ts";
 import {
   buildApprovalMenu,
   buildClaudeCommandsMenu,
+  buildModeMenu,
   buildWorkspaceMenu,
 } from "../telegram/menus.ts";
-import type { AppCallback, AppMessage, ClaudeEvent } from "../types.ts";
+import type {
+  AppCallback,
+  AppMessage,
+  ApprovalDecision,
+  ApprovalRequest,
+  ClaudeEvent,
+  PermissionMode,
+} from "../types.ts";
 import { markdownToTelegramHtml } from "../utils/telegram-formatting.ts";
 import { escapeHtml } from "../utils/telegram-formatting.ts";
 import { clipForTelegram } from "../utils/string.ts";
@@ -54,10 +62,14 @@ type ActiveRunRecord = {
   flushTimer?: Timer;
   progressFlushTimer?: Timer;
   typingTimer?: Timer;
+  progressUpdateInFlight?: boolean;
+  progressRateLimitedUntil?: number;
+  lastProgressSentAt?: number;
   sessionId: string;
   workspacePath: string;
   workspaceName: string;
   workspaceStatusLine: string;
+  permissionMode: PermissionMode;
   toolCalls: ToolCall[];
   currentToolCall?: ToolCall;
   startTime: number;
@@ -106,13 +118,17 @@ export class Bridge {
     private readonly agent: AgentAdapter,
     private readonly logger: Logger,
   ) {
-    this.state = new MemoryState(resolve(config.logDir, "chat-selection.json"));
+    this.state = new MemoryState(
+      resolve(config.logDir, "chat-selection.json"),
+      config.claudeDefaultPermissionMode,
+    );
   }
 
   async setup(): Promise<void> {
     await this.telegram.setMyCommands([
       { command: "start", description: "ℹ️ Show help" },
       { command: "workspace", description: "📁 Choose a workspace" },
+      { command: "mode", description: "🛂 Choose permission mode" },
       { command: "status", description: "📊 Show current status" },
       { command: "stop", description: "⏹️ Stop the active run" },
       { command: "cc", description: "🤖 Open Claude command menu" },
@@ -131,6 +147,13 @@ export class Bridge {
       return;
     }
 
+    const state = this.state.getChatState(chatId);
+
+    if (state.pendingInputEdit && !text.startsWith("/")) {
+      await this.handleApprovalInputEdit(chatId, text);
+      return;
+    }
+
     if (text === "/start") {
       await this.telegram.sendMessage(
         chatId,
@@ -138,13 +161,13 @@ export class Bridge {
 
 ${FormattedString.bold("Commands")}
 ${FormattedString.code("/workspace")} - choose a workspace
+${FormattedString.code("/mode")} - choose Claude permission mode
 ${FormattedString.code("/status")} - show current status
 ${FormattedString.code("/stop")} - stop the current run
 ${FormattedString.code("/cc")} - show Claude slash commands
 
 All other text is forwarded to Claude Code.
-
-Note: This bot uses --dangerously-skip-permissions mode.`,
+`,
       );
       return;
     }
@@ -156,6 +179,11 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
 
     if (text === "/status") {
       await this.showStatus(chatId);
+      return;
+    }
+
+    if (text === "/mode") {
+      await this.showModeMenu(chatId);
       return;
     }
 
@@ -201,12 +229,22 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
     }
 
     if (data.startsWith("approve:")) {
-      await this.resolveApproval(chatId, data.slice(8), "approve");
+      await this.resolveApproval(chatId, data.slice(8), { type: "approve" });
+      return;
+    }
+
+    if (data.startsWith("edit:")) {
+      await this.promptApprovalInputEdit(chatId, data.slice(5));
       return;
     }
 
     if (data.startsWith("reject:")) {
-      await this.resolveApproval(chatId, data.slice(7), "reject");
+      await this.resolveApproval(chatId, data.slice(7), { type: "reject" });
+      return;
+    }
+
+    if (data.startsWith("mode:")) {
+      await this.selectPermissionMode(chatId, data.slice(5) as PermissionMode);
       return;
     }
   }
@@ -268,6 +306,11 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
 
     const sections: Array<{ heading: string; body: string }> = [];
 
+    sections.push({
+      heading: "Mode",
+      body: `<blockquote>${escapeHtml(this.renderPermissionModeLabel(state.permissionMode))}</blockquote>`,
+    });
+
     if (state.status !== "idle" || state.activeRunId) {
       sections.push({
         heading: "State",
@@ -298,6 +341,36 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
         sections,
       }),
       { parseMode: "HTML" },
+    );
+  }
+
+  private async showModeMenu(chatId: number): Promise<void> {
+    const state = this.state.getChatState(chatId);
+    await this.telegram.sendMessage(
+      chatId,
+      fmt`🛂 ${FormattedString.bold("Claude permission mode")}
+Current: ${FormattedString.code(this.renderPermissionModeLabel(state.permissionMode))}`,
+      {
+        replyMarkup: buildModeMenu(state.permissionMode),
+      },
+    );
+  }
+
+  private async selectPermissionMode(
+    chatId: number,
+    permissionMode: PermissionMode,
+  ): Promise<void> {
+    if (!isPermissionMode(permissionMode)) {
+      await this.telegram.sendMessage(chatId, "Unknown permission mode.");
+      return;
+    }
+    this.state.setPermissionMode(chatId, permissionMode);
+    const activeRun = this.activeRuns.get(chatId);
+    const suffix = activeRun ? " This will apply to the next run." : "";
+    await this.telegram.sendMessage(
+      chatId,
+      fmt`🛂 ${FormattedString.bold("Permission mode updated")}
+${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix}`,
     );
   }
 
@@ -353,8 +426,13 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
       await this.telegram.sendMessage(chatId, "No active run.");
       return;
     }
+    const state = this.state.getChatState(chatId);
+    if (state.pendingApproval) {
+      clearPendingApprovalTimer(state.pendingApproval);
+    }
+    this.state.setPendingInputEdit(chatId, undefined);
     activeRun.stop();
-    this.stopProgressTicker(activeRun);
+    this.cancelProgressFlush(activeRun);
     this.stopTypingIndicator(activeRun);
     this.activeRuns.delete(chatId);
     this.state.setActiveRun(chatId);
@@ -377,14 +455,6 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
       return;
     }
 
-    // TODO: Implement interactive approval mode
-    // Currently always runs in dangerous mode (--dangerously-skip-permissions)
-    // To implement approval modes, need to:
-    // 1. Capture permission_denials from stream-json output
-    // 2. Forward to Telegram for user approval
-    // 3. Resume or cancel the operation based on user response
-    // See: https://github.com/anthropics/claude-code/issues/xxx
-
     await this.executeClaudeRun(chatId, text, draftId);
   }
 
@@ -392,6 +462,7 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
     const state = this.state.getChatState(chatId);
     const workspacePath = state.selectedWorkspace!;
     const workspaceName = state.selectedWorkspaceName!;
+    const permissionMode = state.permissionMode;
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
     const runId = randomUUID();
@@ -420,25 +491,19 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
       workspacePath,
       workspaceName,
       workspaceStatusLine,
+      permissionMode,
       toolCalls: [],
       startTime: Date.now(),
     });
-    this.startProgressTicker(chatId);
     this.startTypingIndicator(chatId);
     this.pushProgress(chatId, `phase:Thinking`);
-
-    // TODO: To implement approval modes:
-    // 1. Run Claude without --dangerously-skip-permissions
-    // 2. Parse permission_denials from stream-json output
-    // 3. Call waitForApproval when permission is needed
-    // 4. Currently always using dangerous mode for simplicity
 
     const { sessionId, stop } = await this.agent.sendMessage({
       runId,
       workspacePath,
       sessionId: existingSession?.sessionId || undefined,
       message: text,
-      dangerouslySkipPermissions: true,
+      mode: permissionMode,
       requestApproval: (request) => this.waitForApproval(chatId, runId, request),
       onEvent: async (event) => {
         await this.handleClaudeEvent(chatId, {
@@ -499,6 +564,11 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
       }
       case "assistant_text": {
         activeRun.accumulatedText += args.event.text;
+        this.logger.run(args.runId, "assistant text received", {
+          length: args.event.text.length,
+          totalLength: activeRun.accumulatedText.length,
+        });
+        this.stopTypingIndicator(activeRun);
         this.scheduleContentFlush(chatId);
         return;
       }
@@ -519,33 +589,91 @@ Note: This bot uses --dangerously-skip-permissions mode.`,
         return;
       }
       case "approval_requested": {
-        this.pushProgress(chatId, "approval:Waiting for approval");
+        this.pushProgress(chatId, `approval:Waiting for ${args.event.request.toolName}`, true);
+        return;
+      }
+      case "approval_cancelled": {
+        const state = this.state.getChatState(chatId);
+        if (state.pendingApproval?.id === args.event.approvalId) {
+          clearPendingApprovalTimer(state.pendingApproval);
+          this.state.setPendingInputEdit(chatId, undefined);
+          this.state.setPendingApproval(chatId, undefined);
+          await this.telegram.sendMessage(chatId, "Approval request was cancelled by Claude.");
+        }
         return;
       }
       case "run_completed": {
         activeRun.phase = "Completed";
-        this.stopProgressTicker(activeRun);
-        await this.flushProgressMessage(chatId, true);
-        await this.flushContentMessage(chatId, true);
+        this.cancelProgressFlush(activeRun);
         this.stopTypingIndicator(activeRun);
-        this.state.setActiveRun(chatId);
-        this.activeRuns.delete(chatId);
+        try {
+          try {
+            await this.flushProgressMessage(chatId, true);
+          } catch (error) {
+            this.logger.error("failed to flush progress message on completion", {
+              chatId,
+              runId: activeRun.runId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+
+          try {
+            await this.flushContentMessage(chatId, true);
+          } catch (error) {
+            this.logger.error("failed to flush content message on completion", {
+              chatId,
+              runId: activeRun.runId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+
+          if (!activeRun.accumulatedText.trim()) {
+            await this.telegram.sendMessage(
+              chatId,
+              "Error: Claude completed without returning any visible output.",
+            );
+          }
+        } finally {
+          this.state.setActiveRun(chatId);
+          this.activeRuns.delete(chatId);
+        }
         await this.processMessageQueue(chatId);
         return;
       }
       case "run_failed": {
         activeRun.phase = "Failed";
-        this.stopProgressTicker(activeRun);
-        await this.flushProgressMessage(chatId, true);
-        await this.flushContentMessage(chatId, true);
+        this.cancelProgressFlush(activeRun);
         this.stopTypingIndicator(activeRun);
-        await this.telegram.sendMessage(
-          chatId,
-          fmt`❌ ${FormattedString.bold("Run failed")}
+        try {
+          try {
+            await this.flushProgressMessage(chatId, true);
+          } catch (error) {
+            this.logger.error("failed to flush progress message on failure", {
+              chatId,
+              runId: activeRun.runId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+
+          try {
+            await this.flushContentMessage(chatId, true);
+          } catch (error) {
+            this.logger.error("failed to flush content message on failure", {
+              chatId,
+              runId: activeRun.runId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+
+          await this.telegram.sendMessage(
+            chatId,
+            fmt`❌ ${FormattedString.bold("Run failed")}
 ${FormattedString.code(args.event.message)}`,
-        );
-        this.state.setActiveRun(chatId);
-        this.activeRuns.delete(chatId);
+          );
+        } finally {
+          this.state.setActiveRun(chatId);
+          this.activeRuns.delete(chatId);
+        }
         await this.processMessageQueue(chatId);
         return;
       }
@@ -568,7 +696,6 @@ ${FormattedString.code(args.event.message)}`,
     if (!activeRun || activeRun.typingTimer) {
       return;
     }
-
     void this.telegram.sendTyping(chatId);
     activeRun.typingTimer = setInterval(() => {
       void this.telegram.sendTyping(chatId);
@@ -590,6 +717,7 @@ ${FormattedString.code(args.event.message)}`,
     }
     const text = activeRun.accumulatedText.trim();
     if (!text) {
+      this.logger.run(activeRun.runId, "content flush skipped: empty", { force });
       return;
     }
     // 先检查是否需要刷新，避免不必要的 clipForTelegram 计算
@@ -599,13 +727,22 @@ ${FormattedString.code(args.event.message)}`,
     const clipped = clipForTelegram(text);
     activeRun.lastFlushedText = text;
     if (!force) {
+      this.logger.run(activeRun.runId, "content draft flush", {
+        length: clipped.length,
+      });
       await this.telegram.sendMessageDraft(chatId, activeRun.contentDraftId, clipped);
       return;
     }
     const html = markdownToTelegramHtml(clipped);
     try {
+      this.logger.run(activeRun.runId, "content final flush html", {
+        length: html.length,
+      });
       await this.telegram.sendMessage(chatId, html, { parseMode: "HTML" });
     } catch {
+      this.logger.run(activeRun.runId, "content final flush plain", {
+        length: clipped.length,
+      });
       await this.telegram.sendMessage(chatId, clipped);
     }
   }
@@ -613,7 +750,7 @@ ${FormattedString.code(args.event.message)}`,
   private async resolveApproval(
     chatId: number,
     approvalId: string,
-    decision: "approve" | "reject",
+    decision: ApprovalDecision,
   ): Promise<void> {
     const state = this.state.getChatState(chatId);
     const pendingApproval = state.pendingApproval;
@@ -621,46 +758,95 @@ ${FormattedString.code(args.event.message)}`,
       await this.telegram.sendMessage(chatId, "Approval request not found.");
       return;
     }
-    this.pushProgress(chatId, `approval:Approval ${decision}d`);
+    clearPendingApprovalTimer(pendingApproval);
+    this.pushProgress(chatId, `approval:${renderApprovalDecision(decision)}`, true);
+    this.state.setPendingInputEdit(chatId, undefined);
     this.state.setPendingApproval(chatId, undefined);
     pendingApproval.resolve?.(decision);
     await this.telegram.sendMessage(
       chatId,
-      fmt`✅ Approval ${FormattedString.bold(`${decision}d`)} for ${FormattedString.code(approvalId)}.`,
+      fmt`✅ ${FormattedString.bold(renderApprovalDecision(decision))} for ${FormattedString.code(approvalId)}.`,
     );
   }
 
   private async waitForApproval(
     chatId: number,
     runId: string,
-    request: { approvalId: string; summary: string },
-  ): Promise<"approve" | "reject"> {
-    // TODO: This method is not currently called because we use --dangerously-skip-permissions
-    // To implement approval modes, need to:
-    // 1. Run Claude without --dangerously-skip-permissions
-    // 2. Parse permission_denials from stream-json output
-    // 3. Call this method when permission is needed
-
+    request: ApprovalRequest,
+  ): Promise<ApprovalDecision> {
     return await new Promise((resolve) => {
-      this.state.setPendingApproval(chatId, {
+      const timeoutId = setTimeout(() => {
+        void this.resolveApproval(chatId, request.approvalId, {
+          type: "reject",
+          message: "Approval timed out",
+        });
+      }, this.config.claudeApprovalTimeoutMs);
+
+      const pendingApproval = {
         id: request.approvalId,
         runId,
-        summary: request.summary,
+        request,
         createdAt: Date.now(),
+        timeoutId,
         resolve,
+      };
+      this.state.setPendingApproval(chatId, pendingApproval);
+      void this.telegram.sendMessage(chatId, this.renderApprovalRequest(request), {
+        parseMode: "HTML",
+        replyMarkup: buildApprovalMenu(request.approvalId),
       });
-      void this.telegram.sendMessage(
-        chatId,
-        fmt`🛂 ${FormattedString.bold("Claude needs approval")}
-${FormattedString.pre(request.summary.slice(0, 350))}`,
-        {
-          replyMarkup: buildApprovalMenu(request.approvalId),
-        },
-      );
     });
   }
 
-  private pushProgress(chatId: number, line: string): void {
+  private async promptApprovalInputEdit(chatId: number, approvalId: string): Promise<void> {
+    const state = this.state.getChatState(chatId);
+    const pendingApproval = state.pendingApproval;
+    if (!pendingApproval || pendingApproval.id !== approvalId) {
+      await this.telegram.sendMessage(chatId, "Approval request not found.");
+      return;
+    }
+
+    const promptMessageId = await this.telegram.sendMessage(
+      chatId,
+      "Reply with the full replacement JSON for tool input.",
+      {
+        replyMarkup: { force_reply: true, selective: true },
+      },
+    );
+    this.state.setPendingInputEdit(chatId, { approvalId, promptMessageId });
+  }
+
+  private async handleApprovalInputEdit(chatId: number, text: string): Promise<void> {
+    const state = this.state.getChatState(chatId);
+    const pendingInputEdit = state.pendingInputEdit;
+    const pendingApproval = state.pendingApproval;
+    if (
+      !pendingInputEdit ||
+      !pendingApproval ||
+      pendingApproval.id !== pendingInputEdit.approvalId
+    ) {
+      return;
+    }
+
+    let updatedInput: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Input must be a JSON object");
+      }
+      updatedInput = parsed as Record<string, unknown>;
+    } catch (error) {
+      await this.telegram.sendMessage(
+        chatId,
+        `Invalid JSON input: ${(error as Error).message}. Reply again with a JSON object.`,
+      );
+      return;
+    }
+
+    await this.resolveApproval(chatId, pendingApproval.id, { type: "edit", updatedInput });
+  }
+
+  private pushProgress(chatId: number, line: string, forceFlush = false): void {
     const activeRun = this.activeRuns.get(chatId);
     if (!activeRun) {
       return;
@@ -671,29 +857,62 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     }
     this.applyProgressUpdate(activeRun, clean);
     activeRun.progressText = this.renderProgressText(activeRun);
+    this.scheduleProgressFlush(chatId, forceFlush);
   }
 
-  private startProgressTicker(chatId: number): void {
+  private scheduleProgressFlush(chatId: number, force: boolean): void {
     const activeRun = this.activeRuns.get(chatId);
-    if (!activeRun || activeRun.progressFlushTimer) {
+    if (!activeRun) {
       return;
     }
-    activeRun.progressFlushTimer = setInterval(async () => {
+    if (force) {
+      this.cancelProgressFlush(activeRun);
+      void this.flushProgressMessage(chatId, true);
+      return;
+    }
+
+    const now = Date.now();
+    const debounceMs = this.config.telegramProgressDebounceMs;
+    const minIntervalMs = this.config.telegramProgressMinIntervalMs;
+    const minIntervalDelay = activeRun.lastProgressSentAt
+      ? Math.max(0, activeRun.lastProgressSentAt + minIntervalMs - now)
+      : 0;
+    const rateLimitDelay = activeRun.progressRateLimitedUntil
+      ? Math.max(0, activeRun.progressRateLimitedUntil - now)
+      : 0;
+    const delayMs = Math.max(debounceMs, minIntervalDelay, rateLimitDelay);
+
+    if (activeRun.progressFlushTimer) {
+      clearTimeout(activeRun.progressFlushTimer);
+    }
+    activeRun.progressFlushTimer = setTimeout(async () => {
+      activeRun.progressFlushTimer = undefined;
       await this.flushProgressMessage(chatId, false);
-    }, 700);
+    }, delayMs);
   }
 
-  private stopProgressTicker(activeRun: ActiveRunRecord): void {
+  private cancelProgressFlush(activeRun: ActiveRunRecord): void {
     if (!activeRun.progressFlushTimer) {
       return;
     }
-    clearInterval(activeRun.progressFlushTimer);
+    clearTimeout(activeRun.progressFlushTimer);
     activeRun.progressFlushTimer = undefined;
   }
 
   private async flushProgressMessage(chatId: number, force: boolean): Promise<void> {
     const activeRun = this.activeRuns.get(chatId);
     if (!activeRun) {
+      return;
+    }
+    if (activeRun.progressUpdateInFlight) {
+      return;
+    }
+    if (
+      !force &&
+      activeRun.progressRateLimitedUntil &&
+      Date.now() < activeRun.progressRateLimitedUntil
+    ) {
+      this.scheduleProgressFlush(chatId, false);
       return;
     }
     // Re-render progress text
@@ -703,10 +922,30 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
       return;
     }
     activeRun.progressText = newProgressText;
-    activeRun.lastProgressFlushedText = newProgressText;
-    await this.telegram.editMessageText(chatId, activeRun.progressMessageId, newProgressText, {
-      parseMode: "HTML",
-    });
+    activeRun.progressUpdateInFlight = true;
+    try {
+      await this.telegram.editMessageText(chatId, activeRun.progressMessageId, newProgressText, {
+        parseMode: "HTML",
+      });
+      activeRun.lastProgressFlushedText = newProgressText;
+      activeRun.progressRateLimitedUntil = undefined;
+      activeRun.lastProgressSentAt = Date.now();
+    } catch (error) {
+      const retryAfterMs = parseTelegramRetryAfterMs(error);
+      if (retryAfterMs) {
+        activeRun.progressRateLimitedUntil = Date.now() + retryAfterMs;
+        this.logger.info("telegram progress edit rate limited", {
+          chatId,
+          retryAfterMs,
+          progressMessageId: activeRun.progressMessageId,
+        });
+        this.scheduleProgressFlush(chatId, false);
+        return;
+      }
+      throw error;
+    } finally {
+      activeRun.progressUpdateInFlight = false;
+    }
   }
 
   private applyProgressUpdate(activeRun: ActiveRunRecord, line: string): void {
@@ -859,7 +1098,7 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     const lines = [
       args.title,
       `<i>${escapeHtml(args.workspaceStatusLine)}</i>`,
-      `<i>${escapeHtml(this.renderPermissionModeLabel())}</i>`,
+      `<i>${escapeHtml(this.renderCurrentPermissionModeLabel())}</i>`,
     ];
 
     if (args.sessionId) {
@@ -875,10 +1114,44 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     return lines.join("\n");
   }
 
-  private renderPermissionModeLabel(): string {
-    // Always runs in dangerous mode (--dangerously-skip-permissions)
-    // See TODO comments about implementing interactive approval modes
-    return "›› bypass permissions on";
+  private renderCurrentPermissionModeLabel(): string {
+    const chatState = this.state.getChatState(this.config.telegramAllowedChatId);
+    return this.renderPermissionModeLabel(chatState.permissionMode);
+  }
+
+  private renderPermissionModeLabel(mode?: PermissionMode): string {
+    switch (mode || this.config.claudeDefaultPermissionMode) {
+      case "acceptEdits":
+        return "⏵︎⏵︎ acceptEdits mode on";
+      case "auto":
+        return "auto mode on";
+      case "dontAsk":
+        return "⏵︎⏵︎ dontAsk mode on";
+      case "plan":
+        return "plan mode on";
+      case "bypassPermissions":
+        return "⏵︎⏵︎ bypassPermissions mode on";
+      default:
+        return "default mode on";
+    }
+  }
+
+  private renderApprovalRequest(request: ApprovalRequest): string {
+    const input = clipForTelegram(JSON.stringify(request.input, null, 2));
+    const lines = [
+      "<b>🛂 Claude needs approval</b>",
+      `<b>Tool</b>\n<blockquote>${escapeHtml(request.toolName)}</blockquote>`,
+      `<b>Input</b>\n<pre>${escapeHtml(input)}</pre>`,
+    ];
+    if (request.description) {
+      lines.push(`<b>Description</b>\n<blockquote>${escapeHtml(request.description)}</blockquote>`);
+    }
+    if (request.blockedPath) {
+      lines.push(
+        `<b>Blocked path</b>\n<blockquote>${escapeHtml(request.blockedPath)}</blockquote>`,
+      );
+    }
+    return lines.join("\n");
   }
 
   private async describeWorkspaceStatus(
@@ -938,9 +1211,9 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
     const title = `${icon} ${tool.name}${suffix ? ` ${suffix}` : ""}`;
     const detail = this.formatToolDetail(tool);
     if (!detail) {
-      return `<blockquote expandable>${escapeHtml(title)}</blockquote>`;
+      return `<blockquote>${escapeHtml(title)}</blockquote>`;
     }
-    return `<blockquote expandable>${escapeHtml(title)}\n${escapeHtml(detail)}</blockquote>`;
+    return `<blockquote>${escapeHtml(title)}</blockquote>\n<blockquote expandable>${escapeHtml(detail)}</blockquote>`;
   }
 
   private formatToolDetail(tool: ToolCall): string {
@@ -996,4 +1269,47 @@ ${FormattedString.pre(request.summary.slice(0, 350))}`,
       await this.forwardToClaude(chatId, nextMessage);
     }
   }
+}
+
+function isPermissionMode(value: string): value is PermissionMode {
+  return (
+    value === "default" ||
+    value === "acceptEdits" ||
+    value === "auto" ||
+    value === "dontAsk" ||
+    value === "plan" ||
+    value === "bypassPermissions"
+  );
+}
+
+function clearPendingApprovalTimer(pendingApproval: { timeoutId?: Timer } | undefined): void {
+  if (pendingApproval?.timeoutId) {
+    clearTimeout(pendingApproval.timeoutId);
+  }
+}
+
+function renderApprovalDecision(decision: ApprovalDecision): string {
+  switch (decision.type) {
+    case "approve":
+      return "Approved";
+    case "edit":
+      return "Approved with edited input";
+    default:
+      return "Rejected";
+  }
+}
+
+function parseTelegramRetryAfterMs(error: unknown): number | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const match = error.message.match(/retry after (\d+)/i);
+  if (!match) {
+    return undefined;
+  }
+  const seconds = Number(match[1]);
+  if (Number.isNaN(seconds) || seconds <= 0) {
+    return undefined;
+  }
+  return seconds * 1000;
 }

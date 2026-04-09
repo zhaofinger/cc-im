@@ -16,6 +16,7 @@ A Telegram bridge for Claude Code, built with Bun + TypeScript. Control Claude C
 - 📁 **Workspace Management** - Select and switch between multiple workspaces
 - 🔧 **Real-time Tool Tracking** - Visualize tool calls and their results in real-time
 - 🛡️ **Secure Approval Flow** - Approve or reject sensitive operations from your phone
+- 🛂 **Permission Modes** - Switch between default, accept-edits, plan, and bypass modes from Telegram
 - 💬 **Interactive Commands** - Paginated slash command menu (/cc)
 - 📝 **Session Persistence** - Maintains Claude sessions per workspace
 - 🎨 **Beautiful Status Display** - Box-style status messages with emoji indicators
@@ -119,26 +120,32 @@ launchctl start com.cc-im.app   # macOS
 
 Copy `.env.example` to `.env` and configure:
 
-| Variable                    | Required | Description                                                       |
-| --------------------------- | -------- | ----------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`        | ✅       | Your Telegram bot token from @BotFather                           |
-| `TELEGRAM_ALLOWED_CHAT_ID`  | ✅       | Restrict bot to your chat only (get from @userinfobot)            |
-| `WORKSPACE_ROOT`            | ❌       | Root directory containing workspaces (default: `/code_workspace`) |
-| `LOG_DIR`                   | ❌       | Log directory (default: `./cc_im_logs`)                           |
-| `AGENT_PROVIDER`            | ❌       | CLI tool to use: `claude` or `codex` (default: `claude`)          |
-| `CLAUDE_COMMANDS_PAGE_SIZE` | ❌       | Commands per page in /cc menu (default: `8`)                      |
+| Variable                            | Required | Description                                                                                                              |
+| ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `TELEGRAM_BOT_TOKEN`                | ✅       | Your Telegram bot token from @BotFather                                                                                  |
+| `TELEGRAM_ALLOWED_CHAT_ID`          | ✅       | Restrict bot to your chat only (get from @userinfobot)                                                                   |
+| `WORKSPACE_ROOT`                    | ❌       | Root directory containing workspaces (default: `/code_workspace`)                                                        |
+| `LOG_DIR`                           | ❌       | Log directory (default: `./cc_im_logs`)                                                                                  |
+| `AGENT_PROVIDER`                    | ❌       | CLI tool to use: `claude` or `codex` (default: `claude`)                                                                 |
+| `CLAUDE_COMMANDS_PAGE_SIZE`         | ❌       | Commands per page in /cc menu (default: `8`)                                                                             |
+| `CLAUDE_APPROVAL_TIMEOUT_MS`        | ❌       | Timeout for Telegram approval requests (default: `300000`)                                                               |
+| `CLAUDE_INPUT_EDIT_TIMEOUT_MS`      | ❌       | Timeout for edited approval input flow (default: `300000`)                                                               |
+| `TELEGRAM_PROGRESS_DEBOUNCE_MS`     | ❌       | Debounce window for progress card edits in milliseconds (default: `2000`)                                                |
+| `TELEGRAM_PROGRESS_MIN_INTERVAL_MS` | ❌       | Minimum interval between progress card edits in milliseconds (default: `10000`)                                          |
+| `CLAUDE_DEFAULT_PERMISSION_MODE`    | ❌       | Claude permission mode: `default`, `acceptEdits`, `auto`, `dontAsk`, `plan`, or `bypassPermissions` (default: `default`) |
 
 ---
 
 ## 📱 Commands
 
-| Command      | Description                |
-| ------------ | -------------------------- |
-| `/start`     | Show help                  |
-| `/workspace` | Choose a workspace         |
-| `/status`    | Show current status        |
-| `/stop`      | Stop the active run        |
-| `/cc`        | Show Claude slash commands |
+| Command      | Description                   |
+| ------------ | ----------------------------- |
+| `/start`     | Show help                     |
+| `/workspace` | Choose a workspace            |
+| `/mode`      | Choose Claude permission mode |
+| `/status`    | Show current status           |
+| `/stop`      | Stop the active run           |
+| `/cc`        | Show Claude slash commands    |
 
 Any other text or commands are forwarded directly to Claude Code in the selected workspace.
 
@@ -151,7 +158,7 @@ The bot displays real-time status using HTML formatting:
 ```
 <b>· Claude Code</b>
 <code>my-project main ✓</code>
-<code>›› permissions default</code>
+<i>default</i>
 
 <b>Tool</b>
 <blockquote expandable>⠋ Read File 正在执行</blockquote>
@@ -164,13 +171,30 @@ Status includes:
 - Permission mode indicator
 - Tool call history with expandable details
 
+When Claude requests permission for a tool call, the bot can:
+
+- Approve once
+- Reject
+- Edit the tool input by replying with a JSON object from Telegram
+
+Supported Claude permission modes:
+
+- `default`
+- `acceptEdits`
+- `auto`
+- `dontAsk`
+- `plan`
+- `bypassPermissions`
+
 ---
 
 ## 🔒 Security
 
 - **Single Chat Restriction**: Use `TELEGRAM_ALLOWED_CHAT_ID` to restrict bot access
 - **Workspace Isolation**: Each workspace has its own Claude session
-- **Dangerous Mode**: This bot uses `--dangerously-skip-permissions` which means Claude Code will execute all operations without asking for approval. Use with caution.
+- **Interactive Approval Flow**: In modes where Claude emits approval requests, tool approvals are routed to Telegram and require an explicit response
+- **Automatic Modes**: `auto` and `dontAsk` are passed through directly to Claude CLI and follow Claude's own permission behavior
+- **Bypass Mode**: `bypassPermissions` skips approval checks and should only be used in trusted environments
 
 ---
 

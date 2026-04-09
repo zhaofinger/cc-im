@@ -1,23 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { buildClaudeCliArgs } from "../claude-cli.ts";
+import { buildClaudeCliArgs, parseSlashCommandsFromInitLine } from "../claude-cli.ts";
 
 describe("buildClaudeCliArgs", () => {
   test("should start a new print session without resume flags", () => {
     const args = buildClaudeCliArgs({
       cwd: "/workspace",
       prompt: "Hello",
-      mode: "interactive",
+      mode: "default",
       env: {},
     });
 
     expect(args).not.toContain("--resume");
     expect(args).toEqual([
       "-p",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
       "--include-hook-events",
-      "Hello",
+      "--replay-user-messages",
+      "--permission-mode",
+      "default",
     ]);
   });
 
@@ -26,7 +30,7 @@ describe("buildClaudeCliArgs", () => {
       cwd: "/workspace",
       prompt: "Follow up",
       sessionId: "session-123",
-      mode: "interactive",
+      mode: "acceptEdits",
       env: {},
       debugFile: "./logs/test.log",
     });
@@ -37,24 +41,40 @@ describe("buildClaudeCliArgs", () => {
       "--debug-file",
       "./logs/test.log",
       "-p",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
       "--include-hook-events",
-      "Follow up",
+      "--replay-user-messages",
+      "--permission-mode",
+      "acceptEdits",
     ]);
   });
 
-  test("should include dangerous permissions flag when enabled", () => {
+  test("should map bypass permissions mode to permission flag", () => {
     const args = buildClaudeCliArgs({
       cwd: "/workspace",
-      prompt: "Do it",
       sessionId: "session-123",
-      mode: "dangerous",
+      mode: "bypassPermissions",
       env: {},
     });
 
-    expect(args[0]).toBe("--dangerously-skip-permissions");
+    expect(args).toContain("--permission-mode");
+    expect(args).toContain("bypassPermissions");
     expect(args).toContain("--resume");
+  });
+
+  test("should parse slash commands from init stream-json line", () => {
+    const commands = parseSlashCommandsFromInitLine(
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        slash_commands: ["/debug", "review"],
+      }),
+    );
+
+    expect(commands).toEqual(["debug", "review"]);
   });
 });

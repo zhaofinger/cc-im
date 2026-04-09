@@ -12,15 +12,15 @@ export type AppCallback = {
   data: string;
 };
 
-export type ChatStateStatus = "idle" | "running" | "awaiting_approval";
+export type PermissionMode =
+  | "default"
+  | "acceptEdits"
+  | "plan"
+  | "bypassPermissions"
+  | "auto"
+  | "dontAsk";
 
-// TODO: Implement interactive approval modes
-// Currently only dangerous mode (--dangerously-skip-permissions) is supported
-// To implement approval modes, need to:
-// 1. Parse permission_denials from stream-json output
-// 2. Forward to Telegram for user approval
-// 3. Resume or cancel the operation based on user response
-// See discussion: https://github.com/anthropics/claude-code/issues/xxx
+export type ChatStateStatus = "idle" | "running" | "awaiting_approval" | "awaiting_input_edit";
 
 export type ChatState = {
   chatId: number;
@@ -28,7 +28,9 @@ export type ChatState = {
   selectedWorkspaceName?: string;
   activeRunId?: string;
   status: ChatStateStatus;
+  permissionMode: PermissionMode;
   pendingApproval?: PendingApproval;
+  pendingInputEdit?: PendingInputEdit;
   messageQueue: string[];
 };
 
@@ -36,6 +38,7 @@ export type PersistedChatSelection = {
   chatId: number;
   selectedWorkspace?: string;
   selectedWorkspaceName?: string;
+  permissionMode?: PermissionMode;
 };
 
 export type WorkspaceSession = {
@@ -46,12 +49,43 @@ export type WorkspaceSession = {
   lastTouchedAt: number;
 };
 
+export type ApprovalRequest = {
+  approvalId: string;
+  toolName: string;
+  toolUseId?: string;
+  input: Record<string, unknown>;
+  description?: string;
+  blockedPath?: string;
+  permissionSuggestions?: string[];
+};
+
 export type PendingApproval = {
   id: string;
   runId: string;
-  summary: string;
+  request: ApprovalRequest;
   createdAt: number;
-  resolve?: (decision: "approve" | "reject") => void;
+  timeoutId?: Timer;
+  resolve?: (decision: ApprovalDecision) => void;
+};
+
+export type PendingInputEdit = {
+  approvalId: string;
+  promptMessageId: number;
+};
+
+export type ApprovalDecision =
+  | { type: "approve" }
+  | { type: "reject"; message?: string }
+  | { type: "edit"; updatedInput: Record<string, unknown> };
+
+export type ApprovalCancelledEvent = {
+  type: "approval_cancelled";
+  approvalId: string;
+};
+
+export type ApprovalRequestedEvent = {
+  type: "approval_requested";
+  request: ApprovalRequest;
 };
 
 export type ClaudeEvent =
@@ -68,11 +102,8 @@ export type ClaudeEvent =
       type: "commands";
       commands: string[];
     }
-  | {
-      type: "approval_requested";
-      approvalId: string;
-      summary: string;
-    }
+  | ApprovalRequestedEvent
+  | ApprovalCancelledEvent
   | {
       type: "run_completed";
       sessionId: string;

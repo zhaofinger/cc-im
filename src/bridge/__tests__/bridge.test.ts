@@ -8,7 +8,82 @@ import type { AppConfig } from "../../config.ts";
 import type { AgentAdapter } from "../../agent/types.ts";
 import type { Logger } from "../../logger.ts";
 import type { TelegramApi } from "../../telegram/api.ts";
-import type { ClaudeEvent } from "../../types.ts";
+import type {
+  ApprovalDecision,
+  ApprovalRequest,
+  ClaudeEvent,
+  PermissionMode,
+} from "../../types.ts";
+
+type SentRecord =
+  | { type: "send"; chatId: number; text: unknown; options?: unknown }
+  | { type: "draft"; chatId: number; draftId: number; text: string }
+  | { type: "edit"; chatId: number; messageId: number; text: unknown; options?: unknown }
+  | { type: "answerCallback"; callbackQueryId: string; text?: string }
+  | { type: "typing"; chatId: number }
+  | { type: "commands"; commands: unknown[] };
+
+type AgentCall =
+  | { method: "probeSlashCommands"; workspacePath: string }
+  | {
+      method: "sendMessage";
+      runId: string;
+      workspacePath: string;
+      sessionId?: string;
+      message: string;
+      mode: PermissionMode;
+      requestApproval?: (request: ApprovalRequest) => Promise<ApprovalDecision>;
+      onEvent: (event: ClaudeEvent) => void | Promise<void>;
+    }
+  | { method: "stop"; runId: string };
+
+type BridgeTestAccess = {
+  renderInitialProgressText: (args: {
+    workspaceStatusLine: string;
+    hasCompletedOutput: boolean;
+    toolCalls: unknown[];
+    currentToolCall?: unknown;
+    spinnerIndex?: number;
+  }) => string;
+  renderStatusCard: (args: {
+    title: string;
+    workspaceStatusLine: string;
+    sessionId?: string;
+    sections?: Array<{ heading: string; body: string }>;
+  }) => string;
+  describeWorkspaceStatus: (workspacePath: string, workspaceName: string) => Promise<string>;
+  handleClaudeEvent: (
+    chatId: number,
+    args: {
+      event: ClaudeEvent;
+      runId: string;
+      workspacePath: string;
+      workspaceName: string;
+    },
+  ) => Promise<void>;
+  activeRuns: Map<number, unknown>;
+  scheduleProgressFlush: (chatId: number, force: boolean) => void;
+  cancelProgressFlush: (activeRun: unknown) => void;
+};
+
+function isSentRecord(record: unknown): record is SentRecord {
+  return typeof record === "object" && record !== null && "type" in record;
+}
+
+function isAgentCall(record: unknown): record is AgentCall {
+  return typeof record === "object" && record !== null && "method" in record;
+}
+
+function textOf(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "object" && value !== null && "text" in value) {
+    const text = value.text;
+    return typeof text === "string" ? text : "";
+  }
+  return "";
+}
 
 // Mock implementations
 function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -21,8 +96,13 @@ function createMockConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logDir: join(testDir, "logs"),
     agentProvider: "claude",
     claudeCommandsPageSize: 8,
+    claudeApprovalTimeoutMs: 300000,
+    claudeInputEditTimeoutMs: 300000,
+    claudeDefaultPermissionMode: "bypassPermissions",
+    telegramProgressDebounceMs: 2000,
+    telegramProgressMinIntervalMs: 10000,
     ...overrides,
-  };
+  } as AppConfig;
 }
 
 function createMockLogger(): Logger & { logs: unknown[] } {
@@ -41,11 +121,11 @@ function createMockLogger(): Logger & { logs: unknown[] } {
   } as Logger & { logs: unknown[] };
 }
 
-function createMockTelegramApi(): TelegramApi & { sent: unknown[] } {
-  const sent: unknown[] = [];
+function createMockTelegramApi(): TelegramApi & { sent: SentRecord[] } {
+  const sent: SentRecord[] = [];
   return {
     sent,
-    bot: {} as any,
+    bot: {} as unknown as TelegramApi["bot"],
     sendMessage: async (chatId: number, text: unknown, options?: unknown) => {
       sent.push({ type: "send", chatId, text, options });
       return 12345;
@@ -71,11 +151,12 @@ function createMockTelegramApi(): TelegramApi & { sent: unknown[] } {
     setMyCommands: async (commands: unknown[]) => {
       sent.push({ type: "commands", commands });
     },
-  } as TelegramApi & { sent: unknown[] };
+    setMessageReaction: async () => {},
+  } as unknown as TelegramApi & { sent: SentRecord[] };
 }
 
-function createMockAgent(): AgentAdapter & { calls: unknown[] } {
-  const calls: unknown[] = [];
+function createMockAgent(): AgentAdapter & { calls: AgentCall[] } {
+  const calls: AgentCall[] = [];
   return {
     calls,
     probeSlashCommands: async (workspacePath: string) => {
@@ -89,10 +170,8 @@ function createMockAgent(): AgentAdapter & { calls: unknown[] } {
       workspacePath: string;
       sessionId?: string;
       message: string;
-      requestApproval?: (request: {
-        approvalId: string;
-        summary: string;
-      }) => Promise<"approve" | "reject">;
+      mode: PermissionMode;
+      requestApproval?: (request: ApprovalRequest) => Promise<ApprovalDecision>;
       onEvent: (event: ClaudeEvent) => void | Promise<void>;
     }) => {
       calls.push({ method: "sendMessage", ...options });
@@ -108,7 +187,7 @@ function createMockAgent(): AgentAdapter & { calls: unknown[] } {
         },
       };
     },
-  } as AgentAdapter & { calls: unknown[] };
+  } as AgentAdapter & { calls: AgentCall[] };
 }
 
 describe("Bridge", () => {
@@ -118,6 +197,7 @@ describe("Bridge", () => {
   let telegram: ReturnType<typeof createMockTelegramApi>;
   let agent: ReturnType<typeof createMockAgent>;
   let bridge: Bridge;
+  let bridgeAccess: BridgeTestAccess;
 
   beforeEach(() => {
     testDir = join(tmpdir(), `bridge-test-${Date.now()}`);
@@ -129,6 +209,7 @@ describe("Bridge", () => {
     telegram = createMockTelegramApi();
     agent = createMockAgent();
     bridge = new Bridge(config, telegram, agent, logger);
+    bridgeAccess = bridge as unknown as BridgeTestAccess;
   });
 
   afterEach(() => {
@@ -141,9 +222,10 @@ describe("Bridge", () => {
     test("should set bot commands", async () => {
       await bridge.setup();
 
-      const commandsCall = telegram.sent.find((s: any) => s.type === "commands") as
-        | { commands: { command: string; description: string }[] }
-        | undefined;
+      const commandsCall = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "commands" }> =>
+          isSentRecord(s) && s.type === "commands",
+      );
       expect(commandsCall).toBeDefined();
       expect(commandsCall!.commands).toContainEqual({
         command: "start",
@@ -152,6 +234,10 @@ describe("Bridge", () => {
       expect(commandsCall!.commands).toContainEqual({
         command: "workspace",
         description: "📁 Choose a workspace",
+      });
+      expect(commandsCall!.commands).toContainEqual({
+        command: "mode",
+        description: "🛂 Choose permission mode",
       });
       expect(commandsCall!.commands).toContainEqual({
         command: "status",
@@ -181,7 +267,8 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.includes("not enabled"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("not enabled"),
       );
       expect(sent).toBeDefined();
     });
@@ -195,7 +282,8 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.toString().includes("cc-im"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("cc-im"),
       );
       expect(sent).toBeDefined();
     });
@@ -208,14 +296,13 @@ describe("Bridge", () => {
         text: "/workspace",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "send") as
-        | { text: string; options: { inline_keyboard: unknown[] } }
-        | undefined;
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> => isSentRecord(s) && s.type === "send",
+      );
       expect(sent).toBeDefined();
-      expect(sent!.text).toContain("Choose a workspace");
-      // Options is the InlineKeyboard directly (third argument position)
+      expect(textOf(sent!.text)).toContain("Choose a workspace");
       expect(sent!.options).toBeDefined();
-      expect(sent!.options.inline_keyboard).toBeDefined();
+      expect(typeof sent!.options).toBe("object");
     });
 
     test("should handle /status command", async () => {
@@ -227,10 +314,26 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.toString().includes("CC-IM Status"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("CC-IM Status"),
       );
       expect(sent).toBeDefined();
-      expect((sent as any).text).toContain("›› bypass permissions on");
+      expect(textOf(sent!.text)).toContain("⏵︎⏵︎ bypassPermissions mode on");
+    });
+
+    test("should handle /mode command", async () => {
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/mode",
+      });
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("Claude permission mode"),
+      );
+      expect(sent).toBeDefined();
     });
 
     test("should handle /stop command with no active run", async () => {
@@ -242,7 +345,8 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.includes("No active run"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("No active run"),
       );
       expect(sent).toBeDefined();
     });
@@ -256,7 +360,8 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.includes("Select a workspace"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("Select a workspace"),
       );
       expect(sent).toBeDefined();
     });
@@ -270,7 +375,8 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.includes("Select a workspace"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("Select a workspace"),
       );
       expect(sent).toBeDefined();
     });
@@ -291,7 +397,9 @@ describe("Bridge", () => {
       });
 
       // Should not send any response for empty messages
-      const sentCount = telegram.sent.filter((s: any) => s.type === "send").length;
+      const sentCount = telegram.sent.filter(
+        (s): s is Extract<SentRecord, { type: "send" }> => isSentRecord(s) && s.type === "send",
+      ).length;
       expect(sentCount).toBe(0);
     });
   });
@@ -304,9 +412,10 @@ describe("Bridge", () => {
         data: "noop",
       });
 
-      const sent = telegram.sent.find((s: any) => s.type === "answerCallback") as
-        | { callbackQueryId: string }
-        | undefined;
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "answerCallback" }> =>
+          isSentRecord(s) && s.type === "answerCallback",
+      );
       expect(sent).toBeDefined();
       expect(sent!.callbackQueryId).toBe("cb1");
     });
@@ -319,7 +428,9 @@ describe("Bridge", () => {
       });
 
       // Should not send any message for noop
-      const messageSent = telegram.sent.find((s: any) => s.type === "send");
+      const messageSent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> => isSentRecord(s) && s.type === "send",
+      );
       expect(messageSent).toBeUndefined();
     });
 
@@ -331,12 +442,13 @@ describe("Bridge", () => {
       });
 
       const sent = telegram.sent.find(
-        (s: any) => s.type === "send" && s.text.toString().includes("Claude Code"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("Claude Code"),
       );
       expect(sent).toBeDefined();
-      expect((sent as any).text).toContain("workspace1 no-git");
-      expect((sent as any).text).toContain("›› bypass permissions on");
-      expect((sent as any).text).toContain("<b>State</b>");
+      expect(textOf(sent!.text)).toContain("workspace1 no-git");
+      expect(textOf(sent!.text)).toContain("⏵︎⏵︎ bypassPermissions mode on");
+      expect(textOf(sent!.text)).toContain("<b>State</b>");
     });
 
     test("should not probe slash commands during workspace selection", async () => {
@@ -346,7 +458,10 @@ describe("Bridge", () => {
         data: "ws:workspace1",
       });
 
-      const probeCalls = agent.calls.filter((c: any) => c.method === "probeSlashCommands");
+      const probeCalls = agent.calls.filter(
+        (c): c is Extract<AgentCall, { method: "probeSlashCommands" }> =>
+          isAgentCall(c) && c.method === "probeSlashCommands",
+      );
       expect(probeCalls).toHaveLength(0);
     });
 
@@ -373,11 +488,13 @@ describe("Bridge", () => {
       });
 
       // Should have called agent.sendMessage
-      const agentCall = agent.calls.find((c: any) => c.method === "sendMessage") as
-        | { message: string }
-        | undefined;
+      const agentCall = agent.calls.find(
+        (c): c is Extract<AgentCall, { method: "sendMessage" }> =>
+          isAgentCall(c) && c.method === "sendMessage",
+      );
       expect(agentCall).toBeDefined();
       expect(agentCall!.message).toBe("/commit");
+      expect(agentCall!.mode).toBe("bypassPermissions");
     });
 
     test("should handle invalid page number gracefully", async () => {
@@ -415,6 +532,61 @@ describe("Bridge", () => {
         }),
       ).resolves.toBeUndefined();
     });
+
+    test("should handle mode selection", async () => {
+      await bridge.handleCallback({
+        id: "cb2",
+        chatId: 123456,
+        data: "mode:plan",
+      });
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) &&
+          s.type === "send" &&
+          textOf(s.text).includes("Permission mode updated"),
+      );
+      expect(sent).toBeDefined();
+      expect(textOf(sent!.text)).toContain("plan mode on");
+    });
+
+    test("should handle auto mode selection", async () => {
+      await bridge.handleCallback({
+        id: "cb3",
+        chatId: 123456,
+        data: "mode:auto",
+      });
+
+      const sent = [...telegram.sent]
+        .reverse()
+        .find(
+          (s): s is Extract<SentRecord, { type: "send" }> =>
+            isSentRecord(s) &&
+            s.type === "send" &&
+            textOf(s.text).includes("Permission mode updated"),
+        );
+      expect(sent).toBeDefined();
+      expect(textOf(sent!.text)).toContain("auto");
+    });
+
+    test("should handle dontAsk mode selection", async () => {
+      await bridge.handleCallback({
+        id: "cb4",
+        chatId: 123456,
+        data: "mode:dontAsk",
+      });
+
+      const sent = [...telegram.sent]
+        .reverse()
+        .find(
+          (s): s is Extract<SentRecord, { type: "send" }> =>
+            isSentRecord(s) &&
+            s.type === "send" &&
+            textOf(s.text).includes("Permission mode updated"),
+        );
+      expect(sent).toBeDefined();
+      expect(textOf(sent!.text)).toContain("⏵︎⏵︎ dontAsk mode on");
+    });
   });
 
   describe("workspace workflow", () => {
@@ -422,6 +594,42 @@ describe("Bridge", () => {
       // This test is skipped due to complex state persistence across tests
       // The agent.sendMessage call depends on proper workspace state
       expect(true).toBe(true);
+    });
+
+    test("should report an error when Claude completes without visible output", async () => {
+      bridgeAccess.activeRuns.set(123456, {
+        runId: "run-silent",
+        progressMessageId: 999,
+        stop: () => {},
+        contentDraftId: 1,
+        accumulatedText: "",
+        lastFlushedText: "",
+        progressText: "",
+        phase: "Thinking",
+        lastProgressFlushedText: "",
+        sessionId: "",
+        workspacePath: join(testDir, "workspace1"),
+        workspaceName: "workspace1",
+        workspaceStatusLine: "workspace1 no-git",
+        permissionMode: "default",
+        toolCalls: [],
+        startTime: Date.now(),
+      });
+
+      await bridgeAccess.handleClaudeEvent(123456, {
+        event: { type: "run_completed", sessionId: "session-silent" },
+        runId: "run-silent",
+        workspacePath: join(testDir, "workspace1"),
+        workspaceName: "workspace1",
+      });
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) &&
+          s.type === "send" &&
+          textOf(s.text).includes("completed without returning any visible output"),
+      );
+      expect(sent).toBeDefined();
     });
 
     test("should remember workspace selection", async () => {
@@ -450,14 +658,14 @@ describe("Bridge", () => {
 
       // Should have sent a progress message
       const progressSent = telegram.sent.find(
-        (s: any) =>
-          s.type === "send" && typeof s.text === "string" && s.text.includes("Claude Code"),
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("Claude Code"),
       );
       expect(progressSent).toBeDefined();
-      expect((progressSent as any).text).toContain("<b>");
-      expect((progressSent as any).text).toContain("Claude Code</b>");
-      expect((progressSent as any).text).toContain("workspace1 no-git");
-      expect((progressSent as any).text).toContain("›› bypass permissions on");
+      expect(textOf(progressSent!.text)).toContain("<b>");
+      expect(textOf(progressSent!.text)).toContain("Claude Code</b>");
+      expect(textOf(progressSent!.text)).toContain("workspace1 no-git");
+      expect(textOf(progressSent!.text)).toContain("⏵︎⏵︎ bypassPermissions mode on");
     });
 
     test("should update progress message", async () => {
@@ -485,16 +693,16 @@ describe("Bridge", () => {
       await Bun.sleep(30);
 
       const waitingMessage = telegram.sent.find(
-        (s: any) =>
+        (s) =>
+          isSentRecord(s) &&
           (s.type === "send" || s.type === "draft") &&
-          typeof s.text === "string" &&
-          s.text.includes("Waiting for Claude output"),
+          textOf(s.text).includes("Waiting for Claude output"),
       );
       expect(waitingMessage).toBeUndefined();
     });
 
     test("should render initial progress text with new session details", () => {
-      const text = (bridge as any).renderInitialProgressText({
+      const text = bridgeAccess.renderInitialProgressText({
         workspaceStatusLine: "workspace1 main ✓",
         hasCompletedOutput: false,
         toolCalls: [],
@@ -503,11 +711,11 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b><code>·</code> Claude Code</b>");
       expect(text).toContain("workspace1 main ✓");
-      expect(text).toContain("›› bypass permissions on");
+      expect(text).toContain("⏵︎⏵︎ bypassPermissions mode on");
     });
 
     test("should render shared status card sections consistently", () => {
-      const text = (bridge as any).renderStatusCard({
+      const text = bridgeAccess.renderStatusCard({
         title: "<b>📊 CC-IM Status</b>",
         workspaceStatusLine: "workspace1 main ✓",
         sessionId: "session-123",
@@ -516,14 +724,14 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b>📊 CC-IM Status</b>");
       expect(text).toContain("<i>workspace1 main ✓</i>");
-      expect(text).toContain("<i>›› bypass permissions on</i>");
+      expect(text).toContain("<i>⏵︎⏵︎ bypassPermissions mode on</i>");
       expect(text).toContain("<code>session-123</code>");
       expect(text).toContain("<b>State</b>");
       expect(text).toContain("<blockquote>running</blockquote>");
     });
 
-    test("should render initial progress text with separate tool blockquotes", () => {
-      const text = (bridge as any).renderInitialProgressText({
+    test("should render tool blocks with expandable detail quotes", () => {
+      const text = bridgeAccess.renderInitialProgressText({
         workspaceStatusLine: "workspace1 feat-branch ✗",
         hasCompletedOutput: true,
         toolCalls: [
@@ -548,11 +756,10 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b>✅ Claude Code</b>");
       expect(text).toContain("<b>Tool</b>");
-      expect(text).toContain("<blockquote expandable>");
-      expect(text).toContain("<blockquote expandable>⠋ read 正在执行");
-      expect(text).toContain("<blockquote expandable>✓ bash");
-      expect(text).toContain("src/main.ts");
-      expect(text).toContain("curl -s wttr.in/test");
+      expect(text).toContain("<blockquote>⠋ read 正在执行</blockquote>");
+      expect(text).toContain("<blockquote expandable>src/main.ts</blockquote>");
+      expect(text).toContain("<blockquote>✓ bash</blockquote>");
+      expect(text).toContain("<blockquote expandable>curl -s wttr.in/test</blockquote>");
     });
 
     test("should render permission mode label", () => {
@@ -563,7 +770,7 @@ describe("Bridge", () => {
         logger,
       );
 
-      const text = (dangerousBridge as any).renderInitialProgressText({
+      const text = (dangerousBridge as unknown as BridgeTestAccess).renderInitialProgressText({
         workspaceStatusLine: "workspace1 no-git",
         hasCompletedOutput: false,
         toolCalls: [],
@@ -571,11 +778,11 @@ describe("Bridge", () => {
       });
 
       expect(text).toContain("workspace1 no-git");
-      expect(text).toContain("›› bypass permissions on");
+      expect(text).toContain("⏵︎⏵︎ bypassPermissions mode on");
     });
 
     test("should pretty print json tool details across multiple lines", () => {
-      const text = (bridge as any).renderInitialProgressText({
+      const text = bridgeAccess.renderInitialProgressText({
         workspaceStatusLine: "workspace1 no-git",
         hasCompletedOutput: true,
         toolCalls: [
@@ -583,16 +790,18 @@ describe("Bridge", () => {
             id: "tool-1",
             name: "Skill",
             status: "completed",
-            input: '{"skill":"simplify","args":"--help"}',
+            input:
+              '{"skill":"simplify","args":"--help","description":"Long structured payload for Telegram rendering","options":["a","b","c","d"]}',
             startedAt: Date.now(),
           },
         ],
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<blockquote expandable>✓ Skill\n{");
+      expect(text).toContain("<blockquote>✓ Skill</blockquote>");
+      expect(text).toContain("<blockquote expandable>{");
       expect(text).toContain('\n  "skill": "simplify",');
-      expect(text).toContain('\n  "args": "--help"\n');
+      expect(text).toContain('\n  "args": "--help",');
     });
 
     test("should describe git branch and clean status", async () => {
@@ -600,7 +809,7 @@ describe("Bridge", () => {
       mkdirSync(repoDir, { recursive: true });
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
 
-      const status = await (bridge as any).describeWorkspaceStatus(repoDir, "git-clean");
+      const status = await bridgeAccess.describeWorkspaceStatus(repoDir, "git-clean");
       expect(status).toBe("git-clean main ✓");
     });
 
@@ -610,21 +819,26 @@ describe("Bridge", () => {
       spawnSync("git", ["init", "-b", "feat-branch"], { cwd: repoDir });
       writeFileSync(join(repoDir, "README.md"), "dirty");
 
-      const status = await (bridge as any).describeWorkspaceStatus(repoDir, "git-dirty");
+      const status = await bridgeAccess.describeWorkspaceStatus(repoDir, "git-dirty");
       expect(status).toBe("git-dirty feat-branch ✗");
     });
 
     test("should describe non-git workspace", async () => {
-      const status = await (bridge as any).describeWorkspaceStatus(
+      const status = await bridgeAccess.describeWorkspaceStatus(
         join(testDir, "workspace1"),
         "workspace1",
       );
       expect(status).toBe("workspace1 no-git");
     });
 
-    test("should refresh progress message every 700ms to advance spinner", async () => {
+    test("should honor configured progress debounce and min interval", async () => {
+      config.telegramProgressDebounceMs = 50;
+      config.telegramProgressMinIntervalMs = 100;
+      bridge = new Bridge(config, telegram, agent, logger);
+      bridgeAccess = bridge as unknown as BridgeTestAccess;
+
       const startTime = Date.now() - 1400;
-      (bridge as any).activeRuns.set(123456, {
+      bridgeAccess.activeRuns.set(123456, {
         runId: "run-1",
         progressMessageId: 999,
         stop: () => {},
@@ -638,19 +852,22 @@ describe("Bridge", () => {
         workspacePath: join(testDir, "workspace1"),
         workspaceName: "workspace1",
         workspaceStatusLine: "workspace1 no-git",
+        permissionMode: "default",
         toolCalls: [],
         startTime,
       });
 
-      (bridge as any).startProgressTicker(123456);
-      await Bun.sleep(750);
+      bridgeAccess.scheduleProgressFlush(123456, false);
+      await Bun.sleep(140);
 
-      const edits = telegram.sent.filter((s: any) => s.type === "edit");
+      const edits = telegram.sent.filter(
+        (s): s is Extract<SentRecord, { type: "edit" }> => isSentRecord(s) && s.type === "edit",
+      );
       expect(edits.length).toBeGreaterThan(0);
-      expect((edits[0] as any).text).toContain("Claude Code");
+      expect(textOf(edits[0].text)).toContain("Claude Code");
 
-      const activeRun = (bridge as any).activeRuns.get(123456);
-      (bridge as any).stopProgressTicker(activeRun);
+      const activeRun = bridgeAccess.activeRuns.get(123456);
+      bridgeAccess.cancelProgressFlush(activeRun);
     });
   });
 });

@@ -4,15 +4,17 @@
  */
 import type { AppConfig } from "../config.ts";
 import type { Logger } from "../logger.ts";
-import type { ClaudeEvent } from "../types.ts";
-import { ClaudeCliRunner } from "./claude-cli.ts";
-import { CodexCliRunner } from "./codex-cli.ts";
-import type { CliRunner } from "./cli-runner.ts";
-import type { AgentAdapter, CommandProbe } from "./types.ts";
+import type { ApprovalDecision, ApprovalRequest, ClaudeEvent, PermissionMode } from "../types.ts";
 import { shorten } from "../utils/string.ts";
+import { ClaudeCliRunner } from "./claude-cli.ts";
+import type { CliRunSession, CliRunner } from "./cli-runner.ts";
+import { CodexCliRunner } from "./codex-cli.ts";
+import type { AgentAdapter, CommandProbe } from "./types.ts";
 
 type ClaudeStreamState = {
   toolUses: Map<string, string>;
+  replayedUserMessages: string[];
+  sawAssistantText: boolean;
 };
 
 type ClaudeMessageContentBlock = {
@@ -31,7 +33,7 @@ type ClaudeStreamJsonEvent = {
   session_id?: string;
   slash_commands?: string[];
   message?: {
-    content?: ClaudeMessageContentBlock[];
+    content?: string | ClaudeMessageContentBlock[];
   };
   result?: string;
   is_error?: boolean;
@@ -41,6 +43,16 @@ type ClaudeStreamJsonEvent = {
   hook_name?: string;
   output?: string;
   stderr?: string;
+  request_id?: string;
+  request?: {
+    subtype?: string;
+    tool_name?: string;
+    input?: Record<string, unknown>;
+    tool_use_id?: string;
+    description?: string;
+    blocked_path?: string;
+    permission_suggestions?: string[];
+  };
 };
 
 export class CliAdapter implements AgentAdapter {
@@ -56,10 +68,7 @@ export class CliAdapter implements AgentAdapter {
 
   async probeSlashCommands(workspacePath: string): Promise<CommandProbe> {
     const commands = await this.runner.probeSlashCommands(workspacePath);
-
-    return {
-      slashCommands: commands,
-    };
+    return { slashCommands: commands };
   }
 
   async sendMessage(options: {
@@ -67,42 +76,47 @@ export class CliAdapter implements AgentAdapter {
     workspacePath: string;
     sessionId?: string;
     message: string;
-    dangerouslySkipPermissions?: boolean;
-    requestApproval?: (request: {
-      approvalId: string;
-      summary: string;
-    }) => Promise<"approve" | "reject">;
+    mode: PermissionMode;
+    requestApproval?: (request: ApprovalRequest) => Promise<ApprovalDecision>;
     onEvent: (event: ClaudeEvent) => Promise<void> | void;
   }): Promise<{ sessionId: string; stop: () => void }> {
     const existingSessionId = options.sessionId || "";
     const debugFile = `${this.config.logDir}/${options.runId}.cli-debug.log`;
 
-    // 始终使用 dangerous 模式，让审批逻辑在应用层处理
-    // 避免 Claude Code 显示交互式提示导致进程挂起
-    // TODO: 实现真正的交互式提示处理（stdin 交互）
-    const mode: "dangerous" | "interactive" = "dangerous";
-
     this.logger.run(options.runId, "cli query started", {
       workspacePath: options.workspacePath,
       sessionId: existingSessionId,
       provider: this.runner.name,
-      mode,
+      mode: options.mode,
     });
 
     const session = this.runner.run({
       cwd: options.workspacePath,
-      prompt: options.message,
       sessionId: existingSessionId,
-      mode,
-      env: {}, // CLI 从环境变量读取配置
+      mode: options.mode,
+      env: {},
       debugFile,
     });
 
-    // 启动流式处理并等待 session ID
+    if (this.runner.name === "claude") {
+      session.writeStdin(
+        JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: options.message,
+          },
+          parent_tool_use_id: null,
+          session_id: existingSessionId,
+        }),
+      );
+    }
+
     const resolvedSessionId = await this.processOutput(
       options.runId,
       existingSessionId,
       session,
+      options.requestApproval,
       options.onEvent,
     );
 
@@ -110,6 +124,15 @@ export class CliAdapter implements AgentAdapter {
       sessionId: resolvedSessionId,
       stop: () => {
         this.logger.run(options.runId, "cli stop requested", {});
+        if (this.runner.name === "claude") {
+          session.writeStdin(
+            JSON.stringify({
+              type: "control_request",
+              request_id: crypto.randomUUID(),
+              request: { subtype: "interrupt" },
+            }),
+          );
+        }
         session.kill();
       },
     };
@@ -118,13 +141,13 @@ export class CliAdapter implements AgentAdapter {
   private async processOutput(
     runId: string,
     existingSessionId: string,
-    session: { stdout: ReadableStream; stderr: ReadableStream; exited: Promise<number> },
+    session: CliRunSession,
+    requestApproval: ((request: ApprovalRequest) => Promise<ApprovalDecision>) | undefined,
     onEvent: (event: ClaudeEvent) => Promise<void> | void,
   ): Promise<string> {
     const streamState = createClaudeStreamState();
     let resolvedSessionId = existingSessionId;
 
-    // 包装 onEvent 以捕获 session ID
     const wrappedOnEvent = async (event: ClaudeEvent): Promise<void> => {
       if (event.type === "status" && event.message.startsWith("Claude session ready:")) {
         const extractedId = event.message.slice("Claude session ready:".length).trim();
@@ -135,12 +158,27 @@ export class CliAdapter implements AgentAdapter {
       await onEvent(event);
     };
 
-    // 并行处理 stdout 和 stderr
-    const stdoutTask = this.readStream(runId, session.stdout, wrappedOnEvent, false, streamState);
-    const stderrTask = this.readStream(runId, session.stderr, wrappedOnEvent, true, streamState);
+    const stdoutTask = this.readStream(
+      runId,
+      session,
+      session.stdout,
+      wrappedOnEvent,
+      false,
+      streamState,
+      requestApproval,
+    );
+    const stderrTask = this.readStream(
+      runId,
+      session,
+      session.stderr,
+      wrappedOnEvent,
+      true,
+      streamState,
+      requestApproval,
+    );
 
-    // 等待进程结束
     const [exitCode] = await Promise.all([session.exited, stdoutTask, stderrTask]);
+    session.closeStdin();
 
     this.logger.run(runId, "cli process exited", { exitCode });
 
@@ -158,10 +196,12 @@ export class CliAdapter implements AgentAdapter {
 
   private async readStream(
     runId: string,
+    session: CliRunSession,
     stream: ReadableStream,
     onEvent: (event: ClaudeEvent) => Promise<void> | void,
     isError: boolean,
     streamState: ClaudeStreamState,
+    requestApproval: ((request: ApprovalRequest) => Promise<ApprovalDecision>) | undefined,
   ): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -173,19 +213,32 @@ export class CliAdapter implements AgentAdapter {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-
-        // 按行分割处理
         const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; // 保留最后一个不完整的行
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          this.processLine(runId, line, onEvent, isError, streamState);
+          await this.processLine(
+            runId,
+            session,
+            line,
+            onEvent,
+            isError,
+            streamState,
+            requestApproval,
+          );
         }
       }
 
-      // 处理剩余的缓冲区
       if (buffer) {
-        this.processLine(runId, buffer, onEvent, isError, streamState);
+        await this.processLine(
+          runId,
+          session,
+          buffer,
+          onEvent,
+          isError,
+          streamState,
+          requestApproval,
+        );
       }
     } catch (error) {
       this.logger.run(runId, "stream read error", { error: String(error) });
@@ -194,70 +247,130 @@ export class CliAdapter implements AgentAdapter {
     }
   }
 
-  private processLine(
+  private async processLine(
     runId: string,
+    session: CliRunSession,
     line: string,
     onEvent: (event: ClaudeEvent) => Promise<void> | void,
     isError: boolean,
     streamState: ClaudeStreamState,
-  ): void {
-    // 移除 ANSI 转义序列
+    requestApproval: ((request: ApprovalRequest) => Promise<ApprovalDecision>) | undefined,
+  ): Promise<void> {
     const cleanLine = stripAnsi(line).trim();
-
     if (!cleanLine) return;
 
     if (isError) {
-      // 错误输出作为状态事件
-      void onEvent({
-        type: "status",
-        message: `stderr: ${cleanLine}`,
-      });
+      await onEvent({ type: "status", message: `stderr: ${cleanLine}` });
       return;
     }
 
     if (this.runner.name === "claude") {
       const parsed = tryParseClaudeStreamJsonLine(cleanLine);
       if (parsed) {
-        for (const event of mapClaudeStreamJsonEvent(parsed, streamState)) {
-          void onEvent(event);
-        }
+        await this.handleClaudeJsonEvent(
+          runId,
+          session,
+          parsed,
+          streamState,
+          requestApproval,
+          onEvent,
+        );
         return;
       }
     }
 
-    // 解析关键事件模式
-    // 注意：危险模式下不会显示工具调用确认提示
-    // 这些模式可能因 CLI 版本而异，需要持续调整
-
-    if (cleanLine.includes("Now let me") || cleanLine.includes("I'll")) {
-      // 检测到助手开始行动
-      void onEvent({
-        type: "status",
-        message: `phase:thinking`,
-      });
-    }
-
-    if (cleanLine.startsWith("✓") || cleanLine.startsWith("✅")) {
-      // 检测到完成标记
-      void onEvent({
-        type: "status",
-        message: `phase:completed`,
-      });
-    }
-
-    if (cleanLine.startsWith("▶") || cleanLine.startsWith("→")) {
-      // 检测到执行标记
-      void onEvent({
-        type: "status",
-        message: `phase:using tool`,
-      });
-    }
-
-    // 所有非空行都作为 assistant 文本
-    // 累积发送（带换行符）
-    void onEvent({
+    await onEvent({
       type: "assistant_text",
       text: line + "\n",
+    });
+  }
+
+  private async handleClaudeJsonEvent(
+    runId: string,
+    session: CliRunSession,
+    event: ClaudeStreamJsonEvent,
+    state: ClaudeStreamState,
+    requestApproval: ((request: ApprovalRequest) => Promise<ApprovalDecision>) | undefined,
+    onEvent: (event: ClaudeEvent) => Promise<void> | void,
+  ): Promise<void> {
+    if (
+      event.type === "control_request" &&
+      event.request?.subtype === "can_use_tool" &&
+      event.request_id
+    ) {
+      const request: ApprovalRequest = {
+        approvalId: event.request_id,
+        toolName: event.request.tool_name || "unknown",
+        toolUseId: event.request.tool_use_id,
+        input: event.request.input || {},
+        description: event.request.description,
+        blockedPath: event.request.blocked_path,
+        permissionSuggestions: event.request.permission_suggestions,
+      };
+      await onEvent({ type: "approval_requested", request });
+
+      const decision = requestApproval
+        ? await requestApproval(request)
+        : ({
+            type: "reject",
+            message: "No approval handler configured",
+          } satisfies ApprovalDecision);
+
+      session.writeStdin(
+        JSON.stringify({
+          type: "control_response",
+          response: {
+            subtype: decision.type === "reject" ? "success" : "success",
+            request_id: request.approvalId,
+            response:
+              decision.type === "reject"
+                ? {
+                    behavior: "deny",
+                    message: decision.message || "Rejected from Telegram",
+                  }
+                : {
+                    behavior: "allow",
+                    updatedInput: decision.type === "edit" ? decision.updatedInput : request.input,
+                  },
+          },
+        }),
+      );
+      return;
+    }
+
+    if (event.type === "control_cancel_request" && event.request_id) {
+      await onEvent({ type: "approval_cancelled", approvalId: event.request_id });
+      return;
+    }
+
+    if (event.type === "result") {
+      session.closeStdin();
+    }
+
+    for (const mapped of mapClaudeStreamJsonEvent(event, state)) {
+      if (
+        mapped.type === "assistant_text" &&
+        state.replayedUserMessages.length > 0 &&
+        state.replayedUserMessages.includes(mapped.text.trim())
+      ) {
+        continue;
+      }
+      await onEvent(mapped);
+    }
+
+    if (event.type === "user") {
+      const userText = extractUserText(event);
+      if (userText) {
+        state.replayedUserMessages.push(userText);
+        if (state.replayedUserMessages.length > 10) {
+          state.replayedUserMessages.shift();
+        }
+      }
+    }
+
+    this.logger.run(runId, "stream-json event processed", {
+      type: event.type,
+      subtype: event.subtype,
     });
   }
 }
@@ -265,6 +378,8 @@ export class CliAdapter implements AgentAdapter {
 export function createClaudeStreamState(): ClaudeStreamState {
   return {
     toolUses: new Map<string, string>(),
+    replayedUserMessages: [],
+    sawAssistantText: false,
   };
 }
 
@@ -323,8 +438,9 @@ export function mapClaudeStreamJsonEvent(
   }
 
   if (event.type === "assistant") {
-    for (const block of event.message?.content || []) {
+    for (const block of contentBlocks(event.message?.content)) {
       if (block.type === "text" && block.text) {
+        state.sawAssistantText = true;
         mapped.push({
           type: "assistant_text",
           text: block.text,
@@ -344,7 +460,7 @@ export function mapClaudeStreamJsonEvent(
   }
 
   if (event.type === "user") {
-    for (const block of event.message?.content || []) {
+    for (const block of contentBlocks(event.message?.content)) {
       if (block.type !== "tool_result" || !block.tool_use_id) {
         continue;
       }
@@ -360,9 +476,15 @@ export function mapClaudeStreamJsonEvent(
   }
 
   if (event.type === "result" && event.result) {
+    if (!state.sawAssistantText && event.result.trim()) {
+      mapped.push({
+        type: "assistant_text",
+        text: event.result,
+      });
+    }
     mapped.push({
       type: "status",
-      message: `phase:completed`,
+      message: "phase:completed",
     });
   }
 
@@ -374,6 +496,25 @@ export function mapClaudeStreamJsonEvent(
   }
 
   return mapped;
+}
+
+function extractUserText(event: ClaudeStreamJsonEvent): string | undefined {
+  const content = event.message?.content;
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  const parts = contentBlocks(content);
+  return parts
+    .filter((block) => block.type === "text" && block.text)
+    .map((block) => block.text || "")
+    .join("\n")
+    .trim();
+}
+
+function contentBlocks(
+  content: string | ClaudeMessageContentBlock[] | undefined,
+): ClaudeMessageContentBlock[] {
+  return Array.isArray(content) ? content : [];
 }
 
 function summarizeToolResult(content: ClaudeMessageContentBlock["content"]): string {
@@ -430,10 +571,6 @@ function shortenStatusText(text: string): string {
   return shorten(singleLine, 120);
 }
 
-/**
- * 移除 ANSI 转义序列
- * 支持颜色码、光标移动、清除屏幕等多种 ANSI 序列
- */
 function stripAnsi(text: string): string {
   const esc = "\u001b";
   const bel = "\u0007";

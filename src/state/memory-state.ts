@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type {
   ChatState,
   PendingApproval,
+  PendingInputEdit,
   PersistedChatSelection,
   WorkspaceSession,
 } from "../types.ts";
@@ -12,13 +13,17 @@ export class MemoryState {
   private readonly workspaceSessions = new Map<string, WorkspaceSession>();
   private saveTimeout?: ReturnType<typeof setTimeout>;
 
-  constructor(private readonly stateFile: string) {}
+  constructor(
+    private readonly stateFile: string,
+    private readonly defaultPermissionMode: ChatState["permissionMode"] = "default",
+  ) {}
 
   getChatState(chatId: number): ChatState {
     if (!this.chatState) {
       this.chatState = this.loadSelection(chatId) || {
         chatId,
         status: "idle",
+        permissionMode: this.defaultPermissionMode,
         messageQueue: [],
       };
     }
@@ -28,6 +33,9 @@ export class MemoryState {
     // Ensure messageQueue exists (for loaded states)
     if (!this.chatState.messageQueue) {
       this.chatState.messageQueue = [];
+    }
+    if (!this.chatState.permissionMode) {
+      this.chatState.permissionMode = this.defaultPermissionMode;
     }
     return this.chatState;
   }
@@ -40,12 +48,20 @@ export class MemoryState {
     return state;
   }
 
+  setPermissionMode(chatId: number, permissionMode: ChatState["permissionMode"]): ChatState {
+    const state = this.getChatState(chatId);
+    state.permissionMode = permissionMode;
+    this.scheduleSave(state);
+    return state;
+  }
+
   setActiveRun(chatId: number, runId?: string, status: ChatState["status"] = "idle"): ChatState {
     const state = this.getChatState(chatId);
     state.activeRunId = runId;
     state.status = status;
     if (!runId) {
       state.pendingApproval = undefined;
+      state.pendingInputEdit = undefined;
     }
     return state;
   }
@@ -54,6 +70,19 @@ export class MemoryState {
     const state = this.getChatState(chatId);
     state.pendingApproval = approval;
     state.status = approval ? "awaiting_approval" : state.activeRunId ? "running" : "idle";
+    return state;
+  }
+
+  setPendingInputEdit(chatId: number, pendingInputEdit?: PendingInputEdit): ChatState {
+    const state = this.getChatState(chatId);
+    state.pendingInputEdit = pendingInputEdit;
+    state.status = pendingInputEdit
+      ? "awaiting_input_edit"
+      : state.pendingApproval
+        ? "awaiting_approval"
+        : state.activeRunId
+          ? "running"
+          : "idle";
     return state;
   }
 
@@ -92,6 +121,7 @@ export class MemoryState {
         selectedWorkspace: parsed.selectedWorkspace,
         selectedWorkspaceName: parsed.selectedWorkspaceName,
         status: "idle",
+        permissionMode: parsed.permissionMode || this.defaultPermissionMode,
         messageQueue: [],
       };
     } catch (err) {
@@ -107,6 +137,7 @@ export class MemoryState {
       chatId: state.chatId,
       selectedWorkspace: state.selectedWorkspace,
       selectedWorkspaceName: state.selectedWorkspaceName,
+      permissionMode: state.permissionMode,
     };
     mkdirSync(dirname(this.stateFile), { recursive: true });
     writeFileSync(this.stateFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");

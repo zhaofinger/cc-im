@@ -3,15 +3,17 @@
  * 统一 Claude Code 和 Codex CLI 的调用接口
  */
 
+import type { PermissionMode } from "../types.ts";
+
 export interface CliRunOptions {
   /** 工作目录 */
   cwd: string;
   /** 提示词 */
-  prompt: string;
+  prompt?: string;
   /** 会话 ID（用于恢复） */
   sessionId?: string;
   /** 运行模式 */
-  mode: "dangerous" | "interactive";
+  mode: PermissionMode;
   /** 环境变量 */
   env: Record<string, string>;
   /** 日志文件路径（用于调试） */
@@ -23,6 +25,10 @@ export interface CliRunSession {
   stdout: ReadableStream;
   /** 标准错误流 */
   stderr: ReadableStream;
+  /** 写入标准输入 */
+  writeStdin: (line: string) => void;
+  /** 关闭标准输入 */
+  closeStdin: () => void;
   /** 杀死进程 */
   kill: () => void;
   /** 进程退出 Promise */

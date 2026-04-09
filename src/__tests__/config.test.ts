@@ -12,6 +12,11 @@ describe("loadConfig", () => {
     delete process.env.CLAUDE_COMMANDS_PAGE_SIZE;
     delete process.env.LOG_DIR;
     delete process.env.AGENT_PROVIDER;
+    delete process.env.CLAUDE_APPROVAL_TIMEOUT_MS;
+    delete process.env.CLAUDE_INPUT_EDIT_TIMEOUT_MS;
+    delete process.env.CLAUDE_DEFAULT_PERMISSION_MODE;
+    delete process.env.TELEGRAM_PROGRESS_DEBOUNCE_MS;
+    delete process.env.TELEGRAM_PROGRESS_MIN_INTERVAL_MS;
   });
 
   afterEach(() => {
@@ -42,6 +47,11 @@ describe("loadConfig", () => {
     expect(config.logDir).toBe("./cc_im_logs");
     expect(config.agentProvider).toBe("claude");
     expect(config.claudeCommandsPageSize).toBe(8);
+    expect(config.claudeApprovalTimeoutMs).toBe(300000);
+    expect(config.claudeInputEditTimeoutMs).toBe(300000);
+    expect(config.claudeDefaultPermissionMode).toBe("default");
+    expect(config.telegramProgressDebounceMs).toBe(1000);
+    expect(config.telegramProgressMinIntervalMs).toBe(2000);
   });
 
   test("should parse TELEGRAM_ALLOWED_CHAT_ID as number", async () => {
@@ -134,5 +144,34 @@ describe("loadConfig", () => {
     const config: AppConfig = loadConfig();
 
     expect(config.telegramAllowedChatId).toBe(999999999999999);
+  });
+
+  test("should load custom Claude approval settings", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    process.env.TELEGRAM_ALLOWED_CHAT_ID = "123456789";
+    process.env.CLAUDE_APPROVAL_TIMEOUT_MS = "120000";
+    process.env.CLAUDE_INPUT_EDIT_TIMEOUT_MS = "180000";
+    process.env.CLAUDE_DEFAULT_PERMISSION_MODE = "plan";
+    process.env.TELEGRAM_PROGRESS_DEBOUNCE_MS = "4500";
+    process.env.TELEGRAM_PROGRESS_MIN_INTERVAL_MS = "12000";
+    const { loadConfig } = await import("../config.ts");
+    const config: AppConfig = loadConfig();
+
+    expect(config.claudeApprovalTimeoutMs).toBe(120000);
+    expect(config.claudeInputEditTimeoutMs).toBe(180000);
+    expect(config.claudeDefaultPermissionMode).toBe("plan");
+    expect(config.telegramProgressDebounceMs).toBe(4500);
+    expect(config.telegramProgressMinIntervalMs).toBe(12000);
+  });
+
+  test("should accept auto and dontAsk as Claude permission modes", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    process.env.TELEGRAM_ALLOWED_CHAT_ID = "123456789";
+    process.env.CLAUDE_DEFAULT_PERMISSION_MODE = "auto";
+    const { loadConfig } = await import("../config.ts");
+    expect(loadConfig().claudeDefaultPermissionMode).toBe("auto");
+
+    process.env.CLAUDE_DEFAULT_PERMISSION_MODE = "dontAsk";
+    expect(loadConfig().claudeDefaultPermissionMode).toBe("dontAsk");
   });
 });

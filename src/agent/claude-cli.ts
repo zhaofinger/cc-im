@@ -28,6 +28,7 @@ export class ClaudeCliRunner implements CliRunner {
       cmd: ["claude", ...args],
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
+      stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -35,6 +36,12 @@ export class ClaudeCliRunner implements CliRunner {
     return {
       stdout: proc.stdout,
       stderr: proc.stderr,
+      writeStdin: (line: string) => {
+        proc.stdin.write(`${line}\n`);
+      },
+      closeStdin: () => {
+        proc.stdin.end();
+      },
       kill: () => {
         proc.kill();
       },
@@ -45,31 +52,59 @@ export class ClaudeCliRunner implements CliRunner {
   async probeSlashCommands(workspacePath: string): Promise<string[]> {
     try {
       const proc = Bun.spawn({
-        cmd: ["claude", "-p", "List all available slash commands"],
+        cmd: [
+          "claude",
+          "-p",
+          "--input-format",
+          "stream-json",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--include-hook-events",
+          "--replay-user-messages",
+          "--permission-mode",
+          "default",
+        ],
         cwd: workspacePath,
         env: process.env,
+        stdin: "pipe",
         stdout: "pipe",
-        stderr: "pipe",
+        stderr: "ignore",
       });
 
-      const output = await new Response(proc.stdout).text();
-      await proc.exited;
+      proc.stdin.write(
+        `${JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "hello" },
+          parent_tool_use_id: null,
+          session_id: "",
+        })}\n`,
+      );
+      proc.stdin.end();
 
-      // 解析输出中的 slash commands
-      // 注意：实际输出格式可能因 claude 版本而异
-      const commands: string[] = [];
-      const lines = output.split("\n");
+      const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        // 检测常见的 slash command 格式
-        const match = trimmed.match(/^\/(\w+)/);
-        if (match && !commands.includes(match[1])) {
-          commands.push(match[1]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const commands = parseSlashCommandsFromInitLine(line);
+          if (commands) {
+            proc.kill();
+            return commands;
+          }
         }
       }
-
-      return commands;
+      return parseSlashCommandsFromInitLine(buffer) || [];
     } catch (error) {
       console.error("Failed to probe slash commands:", error);
       return [];
@@ -87,10 +122,6 @@ export class ClaudeCliRunner implements CliRunner {
 export function buildClaudeCliArgs(options: CliRunOptions): string[] {
   const args: string[] = [];
 
-  if (options.mode === "dangerous") {
-    args.push("--dangerously-skip-permissions");
-  }
-
   if (options.sessionId) {
     args.push("--resume", options.sessionId);
   }
@@ -100,10 +131,33 @@ export function buildClaudeCliArgs(options: CliRunOptions): string[] {
   }
 
   args.push("-p");
+  args.push("--input-format", "stream-json");
   args.push("--output-format", "stream-json");
   args.push("--verbose");
   args.push("--include-hook-events");
-  args.push(options.prompt);
+  args.push("--replay-user-messages");
+  args.push("--permission-mode", options.mode);
 
   return args;
+}
+
+export function parseSlashCommandsFromInitLine(line: string): string[] | undefined {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      type?: string;
+      subtype?: string;
+      slash_commands?: string[];
+    };
+    if (parsed.type !== "system" || parsed.subtype !== "init" || !parsed.slash_commands) {
+      return undefined;
+    }
+    return parsed.slash_commands.map((command) => command.replace(/^\//, ""));
+  } catch {
+    return undefined;
+  }
 }

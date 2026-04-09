@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AppConfig } from "../../config.ts";
 import type { Logger } from "../../logger.ts";
+import type { CliRunner } from "../cli-runner.ts";
 import {
   CliAdapter,
   createClaudeStreamState,
@@ -96,6 +97,23 @@ describe("Claude stream-json parsing", () => {
     ]);
   });
 
+  test("should surface result text when no assistant text blocks were emitted", () => {
+    const state = createClaudeStreamState();
+    const events = mapClaudeStreamJsonEvent(
+      {
+        type: "result",
+        subtype: "success",
+        result: "Unknown skill: skills",
+      },
+      state,
+    );
+
+    expect(events).toEqual([
+      { type: "assistant_text", text: "Unknown skill: skills" },
+      { type: "status", message: "phase:completed" },
+    ]);
+  });
+
   test("should parse json line safely", () => {
     const parsed = tryParseClaudeStreamJsonLine('{"type":"result","subtype":"success"}');
 
@@ -117,11 +135,16 @@ describe("Claude stream-json parsing", () => {
         logDir: "./logs",
         agentProvider: "claude",
         claudeCommandsPageSize: 8,
+        claudeApprovalTimeoutMs: 300000,
+        claudeInputEditTimeoutMs: 300000,
+        claudeDefaultPermissionMode: "default",
+        telegramProgressDebounceMs: 2000,
+        telegramProgressMinIntervalMs: 10000,
       } satisfies AppConfig,
       logger,
     );
 
-    (adapter as any).runner = {
+    (adapter as unknown as { runner: CliRunner }).runner = {
       name: "claude",
       checkInstalled: async () => true,
       probeSlashCommands: async () => [],
@@ -136,6 +159,8 @@ describe("Claude stream-json parsing", () => {
             controller.close();
           },
         }),
+        writeStdin: () => {},
+        closeStdin: () => {},
         kill: () => {},
         exited: Promise.resolve(0),
       }),
@@ -145,6 +170,7 @@ describe("Claude stream-json parsing", () => {
       runId: "run-123",
       workspacePath: "/workspace",
       message: "Hello",
+      mode: "default",
       onEvent: () => {},
     });
 
