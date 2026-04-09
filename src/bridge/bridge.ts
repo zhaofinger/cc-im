@@ -1213,7 +1213,7 @@ ${FormattedString.code(args.event.message)}`,
     if (!detail) {
       return `<blockquote>${escapeHtml(title)}</blockquote>`;
     }
-    return `<blockquote>${escapeHtml(title)}</blockquote>\n<blockquote expandable>${escapeHtml(detail)}</blockquote>`;
+    return `<blockquote expandable>${escapeHtml(`${title}\n${detail}`)}</blockquote>`;
   }
 
   private formatToolDetail(tool: ToolCall): string {

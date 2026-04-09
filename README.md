@@ -161,7 +161,8 @@ The bot displays real-time status using HTML formatting:
 <i>default</i>
 
 <b>Tool</b>
-<blockquote expandable>⠋ Read File 正在执行</blockquote>
+<blockquote expandable>⠋ Read File 正在执行
+src/main.ts</blockquote>
 ```
 
 Status includes:

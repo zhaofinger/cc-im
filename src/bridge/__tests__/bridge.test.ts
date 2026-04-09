@@ -730,7 +730,7 @@ describe("Bridge", () => {
       expect(text).toContain("<blockquote>running</blockquote>");
     });
 
-    test("should render tool blocks with expandable detail quotes", () => {
+    test("should render tool blocks as a single expandable quote", () => {
       const text = bridgeAccess.renderInitialProgressText({
         workspaceStatusLine: "workspace1 feat-branch ✗",
         hasCompletedOutput: true,
@@ -756,10 +756,8 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b>✅ Claude Code</b>");
       expect(text).toContain("<b>Tool</b>");
-      expect(text).toContain("<blockquote>⠋ read 正在执行</blockquote>");
-      expect(text).toContain("<blockquote expandable>src/main.ts</blockquote>");
-      expect(text).toContain("<blockquote>✓ bash</blockquote>");
-      expect(text).toContain("<blockquote expandable>curl -s wttr.in/test</blockquote>");
+      expect(text).toContain("<blockquote expandable>⠋ read 正在执行\nsrc/main.ts</blockquote>");
+      expect(text).toContain("<blockquote expandable>✓ bash\ncurl -s wttr.in/test</blockquote>");
     });
 
     test("should render permission mode label", () => {
@@ -798,8 +796,7 @@ describe("Bridge", () => {
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<blockquote>✓ Skill</blockquote>");
-      expect(text).toContain("<blockquote expandable>{");
+      expect(text).toContain("<blockquote expandable>✓ Skill\n{");
       expect(text).toContain('\n  "skill": "simplify",');
       expect(text).toContain('\n  "args": "--help",');
     });
