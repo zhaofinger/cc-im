@@ -1,52 +1,21 @@
-/**
- * Claude Code CLI Runner
- * 通过 claude CLI 执行命令
- */
 import { join } from "node:path";
-import type { CliRunOptions, CliRunSession, CliRunner } from "./cli-runner.ts";
+import {
+  checkCliInstalled,
+  createSpawnSession,
+  type CliRunOptions,
+  type CliRunSession,
+  type CliRunner,
+} from "./cli-runner.ts";
 
 export class ClaudeCliRunner implements CliRunner {
   readonly name = "claude";
 
   async checkInstalled(): Promise<boolean> {
-    try {
-      const proc = Bun.spawn(["claude", "--version"], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      await proc.exited;
-      return proc.exitCode === 0;
-    } catch {
-      return false;
-    }
+    return checkCliInstalled(this.name);
   }
 
   run(options: CliRunOptions): CliRunSession {
-    const args = buildClaudeCliArgs(options);
-
-    const proc = Bun.spawn({
-      cmd: ["claude", ...args],
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    return {
-      stdout: proc.stdout,
-      stderr: proc.stderr,
-      writeStdin: (line: string) => {
-        proc.stdin.write(`${line}\n`);
-      },
-      closeStdin: () => {
-        proc.stdin.end();
-      },
-      kill: () => {
-        proc.kill();
-      },
-      exited: proc.exited,
-    };
+    return createSpawnSession(this.name, buildClaudeCliArgs(options), options);
   }
 
   async probeSlashCommands(workspacePath: string): Promise<string[]> {
@@ -111,9 +80,6 @@ export class ClaudeCliRunner implements CliRunner {
     }
   }
 
-  /**
-   * 获取会话存储路径
-   */
   getSessionDir(workspacePath: string): string {
     return join(workspacePath, ".claude", "sessions");
   }

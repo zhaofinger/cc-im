@@ -54,10 +54,7 @@ type ActiveRunRecord = {
   contentDraftId: number;
   accumulatedText: string;
   lastFlushedText: string;
-  progressText: string;
   phase: string;
-  currentTool?: string;
-  approvalState?: string;
   lastProgressFlushedText: string;
   flushTimer?: Timer;
   progressFlushTimer?: Timer;
@@ -66,24 +63,14 @@ type ActiveRunRecord = {
   progressRateLimitedUntil?: number;
   lastProgressSentAt?: number;
   sessionId: string;
-  workspacePath: string;
-  workspaceName: string;
   workspaceStatusLine: string;
-  permissionMode: PermissionMode;
   toolCalls: ToolCall[];
   currentToolCall?: ToolCall;
   startTime: number;
 };
 
-const PHASE_BADGES: Record<string, string> = {
-  thinking: "🤔",
-  ready: "✅",
-  "using tool": "🔧",
-  "processing result": "📊",
-  completed: "🎉",
-  failed: "❌",
-  starting: "🚀",
-};
+type StatusSection = { heading: string; body: string };
+type RunContext = { runId: string; workspacePath: string; workspaceName: string };
 
 const SPINNER_CHARS = ["·", "✢", "*", "✶", "✻", "✽", "✽", "✻", "✶", "*", "✢", "·"] as const;
 
@@ -91,9 +78,26 @@ const TOOL_SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 const TOOL_STATUS_LABELS = {
   RUNNING: "正在执行",
-  COMPLETED: "completed",
-  FAILED: "failed",
 } as const;
+
+const BOT_COMMANDS = [
+  { command: "start", description: "ℹ️ Show help" },
+  { command: "workspace", description: "📁 Choose a workspace" },
+  { command: "new", description: "🆕 Start a new Claude session" },
+  { command: "mode", description: "🛂 Choose permission mode" },
+  { command: "status", description: "📊 Show current status" },
+  { command: "stop", description: "⏹️ Stop the active run" },
+  { command: "cc", description: "🤖 Open Claude command menu" },
+] as const;
+
+const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
+  acceptEdits: "⏵︎⏵︎ acceptEdits mode on",
+  auto: "auto mode on",
+  bypassPermissions: "⏵︎⏵︎ bypassPermissions mode on",
+  default: "default mode on",
+  dontAsk: "⏵︎⏵︎ dontAsk mode on",
+  plan: "plan mode on",
+};
 
 const PROGRESS_PREFIXES = {
   PHASE: "phase:",
@@ -125,15 +129,7 @@ export class Bridge {
   }
 
   async setup(): Promise<void> {
-    await this.telegram.setMyCommands([
-      { command: "start", description: "ℹ️ Show help" },
-      { command: "workspace", description: "📁 Choose a workspace" },
-      { command: "new", description: "🆕 Start a new Claude session" },
-      { command: "mode", description: "🛂 Choose permission mode" },
-      { command: "status", description: "📊 Show current status" },
-      { command: "stop", description: "⏹️ Stop the active run" },
-      { command: "cc", description: "🤖 Open Claude command menu" },
-    ]);
+    await this.telegram.setMyCommands([...BOT_COMMANDS]);
   }
 
   async handleMessage(message: AppMessage): Promise<void> {
@@ -155,10 +151,14 @@ export class Bridge {
       return;
     }
 
-    if (text === "/start") {
-      await this.telegram.sendMessage(
-        chatId,
-        fmt`${FormattedString.bold("cc-im")}
+    const handler = {
+      "/cc": () => this.showClaudeMenu(chatId, 0),
+      "/mode": () => this.showModeMenu(chatId),
+      "/new": () => this.startNewSession(chatId),
+      "/start": () =>
+        this.telegram.sendMessage(
+          chatId,
+          fmt`${FormattedString.bold("cc-im")}
 
 ${FormattedString.bold("Commands")}
 ${FormattedString.code("/workspace")} - choose a workspace
@@ -170,37 +170,13 @@ ${FormattedString.code("/cc")} - show Claude slash commands
 
 All other text is forwarded to Claude Code.
 `,
-      );
-      return;
-    }
-
-    if (text === "/workspace") {
-      await this.showWorkspaceMenu(chatId);
-      return;
-    }
-
-    if (text === "/status") {
-      await this.showStatus(chatId);
-      return;
-    }
-
-    if (text === "/new") {
-      await this.startNewSession(chatId);
-      return;
-    }
-
-    if (text === "/mode") {
-      await this.showModeMenu(chatId);
-      return;
-    }
-
-    if (text === "/stop") {
-      await this.stopRun(chatId);
-      return;
-    }
-
-    if (text === "/cc") {
-      await this.showClaudeMenu(chatId, 0);
+        ),
+      "/status": () => this.showStatus(chatId),
+      "/stop": () => this.stopRun(chatId),
+      "/workspace": () => this.showWorkspaceMenu(chatId),
+    }[text];
+    if (handler) {
+      await handler();
       return;
     }
 
@@ -217,43 +193,56 @@ All other text is forwarded to Claude Code.
       return;
     }
 
-    if (data.startsWith("ws:")) {
-      const workspaceName = data.slice(3);
-      await this.selectWorkspace(chatId, workspaceName);
-      return;
+    for (const [prefix, handler] of [
+      ["ws:", (value: string) => this.selectWorkspace(chatId, value)],
+      [
+        "ccpage:",
+        (value: string) =>
+          this.showClaudeMenu(
+            chatId,
+            Number.isNaN(Number(value)) ? 0 : Number(value),
+            callback.messageId,
+          ),
+      ],
+      ["ccrun:", (value: string) => this.forwardToClaude(chatId, `/${value}`, callback.messageId)],
+      ["approve:", (value: string) => this.resolveApproval(chatId, value, { type: "approve" })],
+      ["edit:", (value: string) => this.promptApprovalInputEdit(chatId, value)],
+      ["reject:", (value: string) => this.resolveApproval(chatId, value, { type: "reject" })],
+      ["mode:", (value: string) => this.selectPermissionMode(chatId, value as PermissionMode)],
+    ] as const) {
+      if (data.startsWith(prefix)) {
+        await handler(data.slice(prefix.length));
+        return;
+      }
     }
+  }
 
-    if (data.startsWith("ccpage:")) {
-      const page = Number(data.slice(7));
-      await this.showClaudeMenu(chatId, Number.isNaN(page) ? 0 : page, callback.messageId);
-      return;
+  private getSelectedWorkspace(chatId: number):
+    | {
+        workspacePath: string;
+        workspaceName: string;
+        state: ReturnType<MemoryState["getChatState"]>;
+      }
+    | undefined {
+    const state = this.state.getChatState(chatId);
+    if (!state.selectedWorkspace || !state.selectedWorkspaceName) {
+      return undefined;
     }
+    return {
+      state,
+      workspacePath: state.selectedWorkspace,
+      workspaceName: state.selectedWorkspaceName,
+    };
+  }
 
-    if (data.startsWith("ccrun:")) {
-      const command = data.slice(6);
-      await this.forwardToClaude(chatId, `/${command}`, callback.messageId);
-      return;
+  private async requireWorkspace(
+    chatId: number,
+  ): Promise<ReturnType<Bridge["getSelectedWorkspace"]>> {
+    const selected = this.getSelectedWorkspace(chatId);
+    if (!selected) {
+      await this.telegram.sendMessage(chatId, "Select a workspace first with /workspace.");
     }
-
-    if (data.startsWith("approve:")) {
-      await this.resolveApproval(chatId, data.slice(8), { type: "approve" });
-      return;
-    }
-
-    if (data.startsWith("edit:")) {
-      await this.promptApprovalInputEdit(chatId, data.slice(5));
-      return;
-    }
-
-    if (data.startsWith("reject:")) {
-      await this.resolveApproval(chatId, data.slice(7), { type: "reject" });
-      return;
-    }
-
-    if (data.startsWith("mode:")) {
-      await this.selectPermissionMode(chatId, data.slice(5) as PermissionMode);
-      return;
-    }
+    return selected;
   }
 
   private async showWorkspaceMenu(chatId: number): Promise<void> {
@@ -301,43 +290,30 @@ All other text is forwarded to Claude Code.
     const session = state.selectedWorkspace
       ? this.state.getWorkspaceSession(state.selectedWorkspace)
       : undefined;
-
-    // Get workspace status line if workspace is selected
-    let workspaceStatusLine = "no workspace";
-    if (state.selectedWorkspace && state.selectedWorkspaceName) {
-      workspaceStatusLine = await this.describeWorkspaceStatus(
-        state.selectedWorkspace,
-        state.selectedWorkspaceName,
-      );
-    }
-
-    const sections: Array<{ heading: string; body: string }> = [];
-
-    sections.push({
-      heading: "Mode",
-      body: `<blockquote>${escapeHtml(this.renderPermissionModeLabel(state.permissionMode))}</blockquote>`,
-    });
-
-    if (state.status !== "idle" || state.activeRunId) {
-      sections.push({
-        heading: "State",
-        body: `<blockquote>${escapeHtml(state.status)}</blockquote>`,
-      });
-    }
-
-    if (state.activeRunId) {
-      sections.push({
-        heading: "Run",
-        body: `<blockquote>${escapeHtml(state.activeRunId)}</blockquote>`,
-      });
-    }
-
-    if (state.pendingApproval) {
-      sections.push({
-        heading: "Approval",
-        body: `<blockquote>${escapeHtml(state.pendingApproval.id)}</blockquote>`,
-      });
-    }
+    const workspaceStatusLine =
+      state.selectedWorkspace && state.selectedWorkspaceName
+        ? await this.describeWorkspaceStatus(state.selectedWorkspace, state.selectedWorkspaceName)
+        : "no workspace";
+    const sections: StatusSection[] = [
+      {
+        heading: "Mode",
+        body: `<blockquote>${escapeHtml(this.renderPermissionModeLabel(state.permissionMode))}</blockquote>`,
+      },
+      ...(state.status !== "idle" || state.activeRunId
+        ? [{ heading: "State", body: `<blockquote>${escapeHtml(state.status)}</blockquote>` }]
+        : []),
+      ...(state.activeRunId
+        ? [{ heading: "Run", body: `<blockquote>${escapeHtml(state.activeRunId)}</blockquote>` }]
+        : []),
+      ...(state.pendingApproval
+        ? [
+            {
+              heading: "Approval",
+              body: `<blockquote>${escapeHtml(state.pendingApproval.id)}</blockquote>`,
+            },
+          ]
+        : []),
+    ];
 
     await this.telegram.sendMessage(
       chatId,
@@ -364,21 +340,19 @@ Current: ${FormattedString.code(this.renderPermissionModeLabel(state.permissionM
   }
 
   private async startNewSession(chatId: number): Promise<void> {
-    const state = this.state.getChatState(chatId);
-    if (!state.selectedWorkspace || !state.selectedWorkspaceName) {
-      await this.telegram.sendMessage(chatId, "Select a workspace first with /workspace.");
-      return;
-    }
+    const selected = await this.requireWorkspace(chatId);
+    if (!selected) return;
+    const { state, workspacePath, workspaceName } = selected;
     if (state.activeRunId) {
       await this.telegram.sendMessage(chatId, "Stop the active run before starting a new session.");
       return;
     }
 
-    this.state.resetWorkspaceSession(state.selectedWorkspace);
+    this.state.resetWorkspaceSession(workspacePath);
     await this.telegram.sendMessage(
       chatId,
       fmt`🆕 ${FormattedString.bold("Started a new Claude session")}
-${FormattedString.code(state.selectedWorkspaceName)}`,
+${FormattedString.code(workspaceName)}`,
     );
   }
 
@@ -405,18 +379,16 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
     page: number,
     editMessageId?: number,
   ): Promise<void> {
-    const state = this.state.getChatState(chatId);
-    if (!state.selectedWorkspace) {
-      await this.telegram.sendMessage(chatId, "Select a workspace first with /workspace.");
-      return;
-    }
+    const selected = await this.requireWorkspace(chatId);
+    if (!selected) return;
+    const { workspacePath, workspaceName } = selected;
 
-    let session = this.state.getWorkspaceSession(state.selectedWorkspace);
+    let session = this.state.getWorkspaceSession(workspacePath);
     if (!session || session.slashCommands.length === 0) {
-      const probe = await this.agent.probeSlashCommands(state.selectedWorkspace);
+      const probe = await this.agent.probeSlashCommands(workspacePath);
       session = this.state.setWorkspaceSession({
-        workspaceName: state.selectedWorkspaceName || "workspace",
-        workspacePath: state.selectedWorkspace,
+        workspaceName,
+        workspacePath,
         sessionId: probe.sessionId || session?.sessionId || "",
         slashCommands: probe.slashCommands,
         lastTouchedAt: Date.now(),
@@ -466,13 +438,10 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
   }
 
   private async forwardToClaude(chatId: number, text: string, draftId?: number): Promise<void> {
-    const state = this.state.getChatState(chatId);
-    if (!state.selectedWorkspace || !state.selectedWorkspaceName) {
-      await this.telegram.sendMessage(chatId, "Select a workspace first with /workspace.");
-      return;
-    }
+    const selected = await this.requireWorkspace(chatId);
+    if (!selected) return;
+    const { state } = selected;
     if (state.activeRunId) {
-      // Queue the message instead of rejecting
       state.messageQueue.push(text);
       await this.telegram.sendMessage(
         chatId,
@@ -485,9 +454,9 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
   }
 
   private async executeClaudeRun(chatId: number, text: string, draftId?: number): Promise<void> {
-    const state = this.state.getChatState(chatId);
-    const workspacePath = state.selectedWorkspace!;
-    const workspaceName = state.selectedWorkspaceName!;
+    const selected = this.getSelectedWorkspace(chatId);
+    if (!selected) return;
+    const { state, workspacePath, workspaceName } = selected;
     const permissionMode = state.permissionMode;
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
@@ -510,14 +479,10 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
       contentDraftId: draftId || 1,
       accumulatedText: "",
       lastFlushedText: "",
-      progressText: "",
       phase: "Starting",
       lastProgressFlushedText: "",
       sessionId: existingSession?.sessionId || "",
-      workspacePath,
-      workspaceName,
       workspaceStatusLine,
-      permissionMode,
       toolCalls: [],
       startTime: Date.now(),
     });
@@ -558,12 +523,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
 
   private async handleClaudeEvent(
     chatId: number,
-    args: {
-      event: ClaudeEvent;
-      runId: string;
-      workspacePath: string;
-      workspaceName: string;
-    },
+    args: RunContext & { event: ClaudeEvent },
   ): Promise<void> {
     const activeRun = this.activeRuns.get(chatId);
     if (!activeRun || activeRun.runId !== args.runId) {
@@ -629,80 +589,65 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
         return;
       }
       case "run_completed": {
-        activeRun.phase = "Completed";
-        this.cancelProgressFlush(activeRun);
-        this.stopTypingIndicator(activeRun);
-        try {
-          try {
-            await this.flushProgressMessage(chatId, true);
-          } catch (error) {
-            this.logger.error("failed to flush progress message on completion", {
-              chatId,
-              runId: activeRun.runId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-
-          try {
-            await this.flushContentMessage(chatId, true);
-          } catch (error) {
-            this.logger.error("failed to flush content message on completion", {
-              chatId,
-              runId: activeRun.runId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-
+        await this.finalizeRun(chatId, activeRun, "Completed", async () => {
           if (!activeRun.accumulatedText.trim()) {
             await this.telegram.sendMessage(
               chatId,
               "Error: Claude completed without returning any visible output.",
             );
           }
-        } finally {
-          this.state.setActiveRun(chatId);
-          this.activeRuns.delete(chatId);
-        }
-        await this.processMessageQueue(chatId);
+        });
         return;
       }
       case "run_failed": {
-        activeRun.phase = "Failed";
-        this.cancelProgressFlush(activeRun);
-        this.stopTypingIndicator(activeRun);
-        try {
-          try {
-            await this.flushProgressMessage(chatId, true);
-          } catch (error) {
-            this.logger.error("failed to flush progress message on failure", {
-              chatId,
-              runId: activeRun.runId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-
-          try {
-            await this.flushContentMessage(chatId, true);
-          } catch (error) {
-            this.logger.error("failed to flush content message on failure", {
-              chatId,
-              runId: activeRun.runId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-
+        const message = args.event.message;
+        await this.finalizeRun(chatId, activeRun, "Failed", async () => {
           await this.telegram.sendMessage(
             chatId,
             fmt`❌ ${FormattedString.bold("Run failed")}
-${FormattedString.code(args.event.message)}`,
+${FormattedString.code(message)}`,
           );
-        } finally {
-          this.state.setActiveRun(chatId);
-          this.activeRuns.delete(chatId);
-        }
-        await this.processMessageQueue(chatId);
+        });
         return;
       }
+    }
+  }
+
+  private async finalizeRun(
+    chatId: number,
+    activeRun: ActiveRunRecord,
+    phase: "Completed" | "Failed",
+    finalize?: () => Promise<void>,
+  ): Promise<void> {
+    activeRun.phase = phase;
+    this.cancelProgressFlush(activeRun);
+    this.stopTypingIndicator(activeRun);
+    try {
+      await this.safeFlushRunMessage(chatId, activeRun, "progress");
+      await this.safeFlushRunMessage(chatId, activeRun, "content");
+      await finalize?.();
+    } finally {
+      this.state.setActiveRun(chatId);
+      this.activeRuns.delete(chatId);
+    }
+    await this.processMessageQueue(chatId);
+  }
+
+  private async safeFlushRunMessage(
+    chatId: number,
+    activeRun: ActiveRunRecord,
+    kind: "progress" | "content",
+  ): Promise<void> {
+    try {
+      await (kind === "progress"
+        ? this.flushProgressMessage(chatId, true)
+        : this.flushContentMessage(chatId, true));
+    } catch (error) {
+      this.logger.error(`failed to flush ${kind} message on ${activeRun.phase.toLowerCase()}`, {
+        chatId,
+        runId: activeRun.runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -746,7 +691,6 @@ ${FormattedString.code(args.event.message)}`,
       this.logger.run(activeRun.runId, "content flush skipped: empty", { force });
       return;
     }
-    // 先检查是否需要刷新，避免不必要的 clipForTelegram 计算
     if (!force && text === activeRun.lastFlushedText) {
       return;
     }
@@ -759,8 +703,8 @@ ${FormattedString.code(args.event.message)}`,
       await this.telegram.sendMessageDraft(chatId, activeRun.contentDraftId, clipped);
       return;
     }
-    const html = markdownToTelegramHtml(clipped);
     try {
+      const html = markdownToTelegramHtml(clipped);
       this.logger.run(activeRun.runId, "content final flush html", {
         length: html.length,
       });
@@ -882,7 +826,6 @@ ${FormattedString.code(args.event.message)}`,
       return;
     }
     this.applyProgressUpdate(activeRun, clean);
-    activeRun.progressText = this.renderProgressText(activeRun);
     this.scheduleProgressFlush(chatId, forceFlush);
   }
 
@@ -947,7 +890,6 @@ ${FormattedString.code(args.event.message)}`,
     if (!force && newProgressText === activeRun.lastProgressFlushedText) {
       return;
     }
-    activeRun.progressText = newProgressText;
     activeRun.progressUpdateInFlight = true;
     try {
       await this.telegram.editMessageText(chatId, activeRun.progressMessageId, newProgressText, {
@@ -975,7 +917,6 @@ ${FormattedString.code(args.event.message)}`,
   }
 
   private applyProgressUpdate(activeRun: ActiveRunRecord, line: string): void {
-    // 处理工具调用开始
     if (line.startsWith(PROGRESS_PREFIXES.TOOL_START)) {
       const payload = line.slice(PROGRESS_PREFIXES.TOOL_START.length);
       const [name, detail] = payload.split("|");
@@ -987,18 +928,15 @@ ${FormattedString.code(args.event.message)}`,
         input: detail && Number.isNaN(parsedDuration) ? detail : undefined,
         startedAt: Date.now() - (!Number.isNaN(parsedDuration) ? parsedDuration : 0) * 1000,
       };
-      activeRun.currentTool = toolCall.name;
       activeRun.currentToolCall = toolCall;
       activeRun.phase = "Using tool";
       activeRun.toolCalls.push(toolCall);
-      // 限制工具调用历史数量
       if (activeRun.toolCalls.length > 10) {
         activeRun.toolCalls.shift();
       }
       return;
     }
 
-    // 处理工具调用结束
     if (line.startsWith(PROGRESS_PREFIXES.TOOL_END)) {
       const payload = line.slice(PROGRESS_PREFIXES.TOOL_END.length);
       const [name, result] = payload.split("|");
@@ -1009,46 +947,35 @@ ${FormattedString.code(args.event.message)}`,
         toolCall.completedAt = Date.now();
         toolCall.duration = Math.floor((toolCall.completedAt - toolCall.startedAt) / 1000);
         activeRun.currentToolCall = undefined;
-        activeRun.currentTool = undefined;
       }
       activeRun.phase = "Processing result";
       return;
     }
 
-    // 处理其他前缀
-    const handlers: Record<string, (value: string) => void> = {
-      [PROGRESS_PREFIXES.PHASE]: (value) => {
+    for (const [prefix, handler] of Object.entries({
+      [PROGRESS_PREFIXES.PHASE]: (value: string) => {
         activeRun.phase = value;
       },
-      [PROGRESS_PREFIXES.APPROVAL]: (value) => {
-        activeRun.approvalState = value;
-      },
-      [PROGRESS_PREFIXES.TOOL_RESULT]: (value) => {
-        if (activeRun.currentToolCall) {
-          activeRun.currentToolCall.result = value;
-        }
-      },
-      [PROGRESS_PREFIXES.COMMAND_OUTPUT]: (value) => {
-        if (activeRun.currentToolCall) {
-          activeRun.currentToolCall.result = value;
-        }
-      },
-      [PROGRESS_PREFIXES.CLAUDE_STATUS]: (value) => {
+      [PROGRESS_PREFIXES.APPROVAL]: (value: string) => {
         activeRun.phase = value || activeRun.phase;
       },
-      [PROGRESS_PREFIXES.EVENT]: () => {
-        // 忽略普通事件
+      [PROGRESS_PREFIXES.TOOL_RESULT]: (value: string) => {
+        if (activeRun.currentToolCall) activeRun.currentToolCall.result = value;
       },
-    };
-
-    for (const [prefix, handler] of Object.entries(handlers)) {
+      [PROGRESS_PREFIXES.COMMAND_OUTPUT]: (value: string) => {
+        if (activeRun.currentToolCall) activeRun.currentToolCall.result = value;
+      },
+      [PROGRESS_PREFIXES.CLAUDE_STATUS]: (value: string) => {
+        activeRun.phase = value || activeRun.phase;
+      },
+      [PROGRESS_PREFIXES.EVENT]: () => {},
+    })) {
       if (line.startsWith(prefix)) {
         handler(line.slice(prefix.length).trim());
         return;
       }
     }
 
-    // 特殊处理精确匹配
     if (line === PROGRESS_PREFIXES.THINKING) {
       activeRun.phase = "Thinking";
       return;
@@ -1057,14 +984,6 @@ ${FormattedString.code(args.event.message)}`,
       activeRun.phase = "Ready";
       return;
     }
-  }
-
-  private formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remaining = seconds % 60;
-    return `${minutes}m ${remaining}s`;
   }
 
   private renderProgressText(activeRun: ActiveRunRecord): string {
@@ -1104,14 +1023,13 @@ ${FormattedString.code(args.event.message)}`,
       args.currentToolCall,
       toolSpinnerChar,
     );
-    const sections =
-      toolBlocks.length > 0 ? [{ heading: "Tool", body: toolBlocks.join("\n") }] : undefined;
+    const sections = toolBlocks.length ? [{ heading: "Tool", body: toolBlocks.join("\n") }] : [];
 
     return this.renderStatusCard({
       title: headerText,
       workspaceStatusLine: args.workspaceStatusLine,
       sessionId: args.sessionId,
-      sections,
+      sections: sections.length ? sections : undefined,
     });
   }
 
@@ -1121,10 +1039,11 @@ ${FormattedString.code(args.event.message)}`,
     sessionId?: string;
     sections?: Array<{ heading: string; body: string }>;
   }): string {
+    const mode = this.state.getChatState(this.config.telegramAllowedChatId).permissionMode;
     const lines = [
       args.title,
       `<i>${escapeHtml(args.workspaceStatusLine)}</i>`,
-      `<i>${escapeHtml(this.renderCurrentPermissionModeLabel())}</i>`,
+      `<i>${escapeHtml(this.renderPermissionModeLabel(mode))}</i>`,
     ];
 
     if (args.sessionId) {
@@ -1140,26 +1059,8 @@ ${FormattedString.code(args.event.message)}`,
     return lines.join("\n");
   }
 
-  private renderCurrentPermissionModeLabel(): string {
-    const chatState = this.state.getChatState(this.config.telegramAllowedChatId);
-    return this.renderPermissionModeLabel(chatState.permissionMode);
-  }
-
   private renderPermissionModeLabel(mode?: PermissionMode): string {
-    switch (mode || this.config.claudeDefaultPermissionMode) {
-      case "acceptEdits":
-        return "⏵︎⏵︎ acceptEdits mode on";
-      case "auto":
-        return "auto mode on";
-      case "dontAsk":
-        return "⏵︎⏵︎ dontAsk mode on";
-      case "plan":
-        return "plan mode on";
-      case "bypassPermissions":
-        return "⏵︎⏵︎ bypassPermissions mode on";
-      default:
-        return "default mode on";
-    }
+    return PERMISSION_MODE_LABELS[mode || this.config.claudeDefaultPermissionMode];
   }
 
   private renderApprovalRequest(request: ApprovalRequest): string {
@@ -1185,14 +1086,10 @@ ${FormattedString.code(args.event.message)}`,
     workspaceName: string,
   ): Promise<string> {
     const gitArgs = ["git", "-C", workspacePath];
-
-    // Check if we're in a git repo
     const insideWorkTree = await spawnAsync([...gitArgs, "rev-parse", "--is-inside-work-tree"]);
     if (insideWorkTree.exitCode !== 0 || insideWorkTree.stdout.trim() !== "true") {
       return `${workspaceName} no-git`;
     }
-
-    // Run branch and status in parallel
     const [branchResult, statusResult] = await Promise.all([
       spawnAsync([...gitArgs, "branch", "--show-current"]),
       spawnAsync([...gitArgs, "status", "--porcelain"]),
@@ -1208,29 +1105,22 @@ ${FormattedString.code(args.event.message)}`,
     currentToolCall?: ToolCall,
     runningSpinner?: string,
   ): string[] {
-    const blocks: string[] = [];
-
-    if (currentToolCall) {
-      const spinner = runningSpinner || "…";
-      blocks.push(this.renderToolUseBlock(spinner, currentToolCall, TOOL_STATUS_LABELS.RUNNING));
-    }
-
-    for (const tool of toolCalls.slice(-5).reverse()) {
-      if (currentToolCall && tool.id === currentToolCall.id) {
-        continue;
-      }
-
-      if (tool.status === "completed") {
-        blocks.push(this.renderToolUseBlock("✓", tool));
-        continue;
-      }
-
-      if (tool.status === "failed") {
-        blocks.push(this.renderToolUseBlock("×", tool));
-      }
-    }
-
-    return blocks;
+    return [
+      ...(currentToolCall
+        ? [
+            this.renderToolUseBlock(
+              runningSpinner || "…",
+              currentToolCall,
+              TOOL_STATUS_LABELS.RUNNING,
+            ),
+          ]
+        : []),
+      ...toolCalls
+        .slice(-5)
+        .reverse()
+        .filter((tool) => tool.id !== currentToolCall?.id && tool.status !== "running")
+        .map((tool) => this.renderToolUseBlock(tool.status === "completed" ? "✓" : "×", tool)),
+    ];
   }
 
   private renderToolUseBlock(icon: string, tool: ToolCall, suffix?: string): string {
@@ -1266,14 +1156,7 @@ ${FormattedString.code(args.event.message)}`,
   }
 
   private isAllowedChat(chatId: number): boolean {
-    if (!this.config.telegramAllowedChatId) {
-      return true;
-    }
-    return this.config.telegramAllowedChatId === chatId;
-  }
-
-  private phaseBadge(phase: string): string {
-    return PHASE_BADGES[phase.toLowerCase()] ?? "⚡";
+    return !this.config.telegramAllowedChatId || this.config.telegramAllowedChatId === chatId;
   }
 
   private extractSessionIdFromStatus(message: string): string | undefined {
@@ -1309,9 +1192,7 @@ function isPermissionMode(value: string): value is PermissionMode {
 }
 
 function clearPendingApprovalTimer(pendingApproval: { timeoutId?: Timer } | undefined): void {
-  if (pendingApproval?.timeoutId) {
-    clearTimeout(pendingApproval.timeoutId);
-  }
+  if (pendingApproval?.timeoutId) clearTimeout(pendingApproval.timeoutId);
 }
 
 function renderApprovalDecision(decision: ApprovalDecision): string {

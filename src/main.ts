@@ -26,6 +26,19 @@ async function main(): Promise<void> {
     agentProvider: config.agentProvider,
   });
 
+  const reportError = async (chatId: number | undefined, error: unknown, updateId: number) => {
+    logger.error("telegram handler failed", {
+      error: error instanceof Error ? error.message : String(error),
+      updateId,
+    });
+    if (chatId) {
+      await telegram.sendMessage(
+        chatId,
+        `Error: ${error instanceof Error ? error.message : "unknown"}`,
+      );
+    }
+  };
+
   telegram.bot.on("message:text", async (ctx) => {
     try {
       const text = ctx.message.text?.trim();
@@ -44,14 +57,7 @@ async function main(): Promise<void> {
         text,
       });
     } catch (error) {
-      logger.error("failed to handle telegram message", {
-        error: error instanceof Error ? error.message : String(error),
-        updateId: ctx.update.update_id,
-      });
-      await telegram.sendMessage(
-        ctx.chat.id,
-        `Error: ${error instanceof Error ? error.message : "unknown"}`,
-      );
+      await reportError(ctx.chat.id, error, ctx.update.update_id);
     }
   });
 
@@ -64,16 +70,7 @@ async function main(): Promise<void> {
         data: ctx.callbackQuery.data,
       });
     } catch (error) {
-      logger.error("failed to handle telegram callback", {
-        error: error instanceof Error ? error.message : String(error),
-        updateId: ctx.update.update_id,
-      });
-      if (ctx.chat?.id) {
-        await telegram.sendMessage(
-          ctx.chat.id,
-          `Error: ${error instanceof Error ? error.message : "unknown"}`,
-        );
-      }
+      await reportError(ctx.chat?.id, error, ctx.update.update_id);
     }
   });
 
@@ -88,12 +85,11 @@ async function main(): Promise<void> {
     process.exit(0);
   };
 
-  process.once("SIGINT", () => {
-    shutdown("SIGINT");
-  });
-  process.once("SIGTERM", () => {
-    shutdown("SIGTERM");
-  });
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => {
+      shutdown(signal);
+    });
+  }
 
   await telegram.bot.start({
     onStart: async (botInfo) => {

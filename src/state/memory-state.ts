@@ -19,24 +19,12 @@ export class MemoryState {
   ) {}
 
   getChatState(chatId: number): ChatState {
-    if (!this.chatState) {
-      this.chatState = this.loadSelection(chatId) || {
-        chatId,
-        status: "idle",
-        permissionMode: this.defaultPermissionMode,
-        messageQueue: [],
-      };
-    }
+    this.chatState ||= this.loadSelection(chatId) || this.createChatState(chatId);
     if (this.chatState.chatId !== chatId) {
       throw new Error("This build supports a single active chat only");
     }
-    // Ensure messageQueue exists (for loaded states)
-    if (!this.chatState.messageQueue) {
-      this.chatState.messageQueue = [];
-    }
-    if (!this.chatState.permissionMode) {
-      this.chatState.permissionMode = this.defaultPermissionMode;
-    }
+    this.chatState.messageQueue ||= [];
+    this.chatState.permissionMode ||= this.defaultPermissionMode;
     return this.chatState;
   }
 
@@ -69,20 +57,14 @@ export class MemoryState {
   setPendingApproval(chatId: number, approval?: PendingApproval): ChatState {
     const state = this.getChatState(chatId);
     state.pendingApproval = approval;
-    state.status = approval ? "awaiting_approval" : state.activeRunId ? "running" : "idle";
+    state.status = this.resolveStatus(state, !!approval, !!state.pendingInputEdit);
     return state;
   }
 
   setPendingInputEdit(chatId: number, pendingInputEdit?: PendingInputEdit): ChatState {
     const state = this.getChatState(chatId);
     state.pendingInputEdit = pendingInputEdit;
-    state.status = pendingInputEdit
-      ? "awaiting_input_edit"
-      : state.pendingApproval
-        ? "awaiting_approval"
-        : state.activeRunId
-          ? "running"
-          : "idle";
+    state.status = this.resolveStatus(state, !!state.pendingApproval, !!pendingInputEdit);
     return state;
   }
 
@@ -113,6 +95,25 @@ export class MemoryState {
     return [...this.workspaceSessions.values()];
   }
 
+  private createChatState(chatId: number): ChatState {
+    return {
+      chatId,
+      status: "idle",
+      permissionMode: this.defaultPermissionMode,
+      messageQueue: [],
+    };
+  }
+
+  private resolveStatus(
+    state: ChatState,
+    hasPendingApproval = !!state.pendingApproval,
+    hasPendingInputEdit = !!state.pendingInputEdit,
+  ): ChatState["status"] {
+    if (hasPendingInputEdit) return "awaiting_input_edit";
+    if (hasPendingApproval) return "awaiting_approval";
+    return state.activeRunId ? "running" : "idle";
+  }
+
   private scheduleSave(state: ChatState): void {
     if (this.saveTimeout) {
       clearTimeout(this.saveTimeout);
@@ -131,17 +132,12 @@ export class MemoryState {
         return undefined;
       }
       return {
-        chatId,
+        ...this.createChatState(chatId),
         selectedWorkspace: parsed.selectedWorkspace,
         selectedWorkspaceName: parsed.selectedWorkspaceName,
-        status: "idle",
         permissionMode: parsed.permissionMode || this.defaultPermissionMode,
-        messageQueue: [],
       };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        return undefined;
-      }
+    } catch {
       return undefined;
     }
   }

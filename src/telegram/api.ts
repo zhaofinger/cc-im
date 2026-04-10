@@ -34,13 +34,7 @@ export class TelegramApi {
     text: MessageInput,
     options?: InlineKeyboard | SendMessageOptions,
   ): Promise<number> {
-    const normalized = this.normalizeOptions(options);
-    const payload = this.normalizeText(text);
-    const message = await this.bot.api.sendMessage(chatId, payload.text, {
-      entities: payload.entities,
-      reply_markup: normalized.replyMarkup,
-      parse_mode: payload.entities ? undefined : normalized.parseMode,
-    });
+    const message = await this.bot.api.sendMessage(chatId, ...this.normalizeMessage(text, options));
     return message.message_id;
   }
 
@@ -62,14 +56,12 @@ export class TelegramApi {
     text: MessageInput,
     options?: InlineKeyboard | SendMessageOptions,
   ): Promise<void> {
-    const normalized = this.normalizeOptions(options);
-    const payload = this.normalizeText(text);
     try {
-      await this.bot.api.editMessageText(chatId, messageId, payload.text, {
-        entities: payload.entities,
-        reply_markup: normalized.replyMarkup as InlineKeyboard | InlineKeyboardMarkup | undefined,
-        parse_mode: payload.entities ? undefined : normalized.parseMode,
-      });
+      await this.bot.api.editMessageText(
+        chatId,
+        messageId,
+        ...this.normalizeMessage(text, options),
+      );
     } catch (error) {
       if (error instanceof Error && error.message.includes("message is not modified")) {
         return;
@@ -109,9 +101,29 @@ export class TelegramApi {
   }
 
   private normalizeText(text: MessageInput): TextWithEntities {
-    if (typeof text === "string") {
-      return { text };
-    }
-    return text;
+    return typeof text === "string" ? { text } : text;
+  }
+
+  private normalizeMessage(
+    text: MessageInput,
+    options?: InlineKeyboard | SendMessageOptions,
+  ): [
+    string,
+    {
+      entities?: TextWithEntities["entities"];
+      parse_mode?: SendMessageOptions["parseMode"];
+      reply_markup?: InlineKeyboard | InlineKeyboardMarkup;
+    },
+  ] {
+    const normalized = this.normalizeOptions(options);
+    const payload = this.normalizeText(text);
+    return [
+      payload.text,
+      {
+        entities: payload.entities,
+        parse_mode: payload.entities ? undefined : normalized.parseMode,
+        reply_markup: normalized.replyMarkup as InlineKeyboard | InlineKeyboardMarkup | undefined,
+      },
+    ];
   }
 }

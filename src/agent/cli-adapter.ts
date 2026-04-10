@@ -1,7 +1,3 @@
-/**
- * CLI Adapter - 统一使用 CLI 工具替代 SDK
- * 支持 Claude Code 和 Codex
- */
 import type { AppConfig } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { ApprovalDecision, ApprovalRequest, ClaudeEvent, PermissionMode } from "../types.ts";
@@ -57,12 +53,11 @@ type ClaudeStreamJsonEvent = {
 
 export class CliAdapter implements AgentAdapter {
   private readonly runner: CliRunner;
-  private readonly config: AppConfig;
-  private readonly logger: Logger;
 
-  constructor(config: AppConfig, logger: Logger) {
-    this.config = config;
-    this.logger = logger;
+  constructor(
+    private readonly config: AppConfig,
+    private readonly logger: Logger,
+  ) {
     this.runner = config.agentProvider === "codex" ? new CodexCliRunner() : new ClaudeCliRunner();
   }
 
@@ -99,17 +94,7 @@ export class CliAdapter implements AgentAdapter {
     });
 
     if (this.runner.name === "claude") {
-      session.writeStdin(
-        JSON.stringify({
-          type: "user",
-          message: {
-            role: "user",
-            content: options.message,
-          },
-          parent_tool_use_id: null,
-          session_id: existingSessionId,
-        }),
-      );
+      session.writeStdin(buildClaudeUserInput(options.message, existingSessionId));
     }
 
     const resolvedSessionId = await this.processOutput(
@@ -125,13 +110,7 @@ export class CliAdapter implements AgentAdapter {
       stop: () => {
         this.logger.run(options.runId, "cli stop requested", {});
         if (this.runner.name === "claude") {
-          session.writeStdin(
-            JSON.stringify({
-              type: "control_request",
-              request_id: crypto.randomUUID(),
-              request: { subtype: "interrupt" },
-            }),
-          );
+          session.writeStdin(buildClaudeInterrupt());
         }
         session.kill();
       },
@@ -147,17 +126,12 @@ export class CliAdapter implements AgentAdapter {
   ): Promise<string> {
     const streamState = createClaudeStreamState();
     let resolvedSessionId = existingSessionId;
-
     const wrappedOnEvent = async (event: ClaudeEvent): Promise<void> => {
-      if (event.type === "status" && event.message.startsWith("Claude session ready:")) {
-        const extractedId = event.message.slice("Claude session ready:".length).trim();
-        if (extractedId && extractedId !== "unknown") {
-          resolvedSessionId = extractedId;
-        }
-      }
+      const extractedId =
+        event.type === "status" ? extractReadySessionId(event.message) : undefined;
+      if (extractedId) resolvedSessionId = extractedId;
       await onEvent(event);
     };
-
     const stdoutTask = this.readStream(
       runId,
       session,
@@ -208,14 +182,12 @@ export class CliAdapter implements AgentAdapter {
     let buffer = "";
 
     try {
-      while (true) {
+      for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-
         for (const line of lines) {
           await this.processLine(
             runId,
@@ -228,7 +200,6 @@ export class CliAdapter implements AgentAdapter {
           );
         }
       }
-
       if (buffer) {
         await this.processLine(
           runId,
@@ -308,33 +279,13 @@ export class CliAdapter implements AgentAdapter {
         permissionSuggestions: event.request.permission_suggestions,
       };
       await onEvent({ type: "approval_requested", request });
-
-      const decision = requestApproval
-        ? await requestApproval(request)
-        : ({
-            type: "reject",
-            message: "No approval handler configured",
-          } satisfies ApprovalDecision);
-
-      session.writeStdin(
-        JSON.stringify({
-          type: "control_response",
-          response: {
-            subtype: decision.type === "reject" ? "success" : "success",
-            request_id: request.approvalId,
-            response:
-              decision.type === "reject"
-                ? {
-                    behavior: "deny",
-                    message: decision.message || "Rejected from Telegram",
-                  }
-                : {
-                    behavior: "allow",
-                    updatedInput: decision.type === "edit" ? decision.updatedInput : request.input,
-                  },
-          },
-        }),
-      );
+      const decision =
+        requestApproval?.(request) ||
+        Promise.resolve({
+          type: "reject",
+          message: "No approval handler configured",
+        } satisfies ApprovalDecision);
+      session.writeStdin(buildClaudeApprovalResponse(request, await decision));
       return;
     }
 
@@ -350,7 +301,6 @@ export class CliAdapter implements AgentAdapter {
     for (const mapped of mapClaudeStreamJsonEvent(event, state)) {
       if (
         mapped.type === "assistant_text" &&
-        state.replayedUserMessages.length > 0 &&
         state.replayedUserMessages.includes(mapped.text.trim())
       ) {
         continue;
@@ -362,9 +312,7 @@ export class CliAdapter implements AgentAdapter {
       const userText = extractUserText(event);
       if (userText) {
         state.replayedUserMessages.push(userText);
-        if (state.replayedUserMessages.length > 10) {
-          state.replayedUserMessages.shift();
-        }
+        if (state.replayedUserMessages.length > 10) state.replayedUserMessages.shift();
       }
     }
 
@@ -496,6 +444,50 @@ export function mapClaudeStreamJsonEvent(
   }
 
   return mapped;
+}
+
+function extractReadySessionId(message: string): string | undefined {
+  const prefix = "Claude session ready:";
+  if (!message.startsWith(prefix)) return undefined;
+  const extractedId = message.slice(prefix.length).trim();
+  return extractedId && extractedId !== "unknown" ? extractedId : undefined;
+}
+
+function buildClaudeUserInput(message: string, sessionId: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: { role: "user", content: message },
+    parent_tool_use_id: null,
+    session_id: sessionId,
+  });
+}
+
+function buildClaudeInterrupt(): string {
+  return JSON.stringify({
+    type: "control_request",
+    request_id: crypto.randomUUID(),
+    request: { subtype: "interrupt" },
+  });
+}
+
+function buildClaudeApprovalResponse(request: ApprovalRequest, decision: ApprovalDecision): string {
+  return JSON.stringify({
+    type: "control_response",
+    response: {
+      subtype: "success",
+      request_id: request.approvalId,
+      response:
+        decision.type === "reject"
+          ? {
+              behavior: "deny",
+              message: decision.message || "Rejected from Telegram",
+            }
+          : {
+              behavior: "allow",
+              updatedInput: decision.type === "edit" ? decision.updatedInput : request.input,
+            },
+    },
+  });
 }
 
 function extractUserText(event: ClaudeStreamJsonEvent): string | undefined {
