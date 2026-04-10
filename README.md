@@ -65,6 +65,7 @@ After installation, use these commands:
 cc-im start    # Start the service
 cc-im stop     # Stop the service
 cc-im restart  # Restart the service
+cc-im update   # Update cc-im and restart service
 cc-im status   # Check service status
 cc-im logs     # View logs
 ```
@@ -106,6 +107,7 @@ For manually installed services, use:
 cc-im start      # Start service (after install)
 cc-im stop       # Stop service
 cc-im restart    # Restart service
+cc-im update     # Update cc-im and restart service
 cc-im status     # Check status
 cc-im logs       # View logs
 
@@ -151,6 +153,8 @@ Copy `.env.example` to `.env` and configure:
 Any other text or commands are forwarded directly to Claude Code in the selected workspace.
 
 `/new` keeps the selected workspace and permission mode, but clears the current Claude session so the next message starts a fresh conversation.
+
+Use `cc-im update` from your shell to update the installed service. It reruns the installer in update mode, refreshes dependencies and service files, and restarts the background service.
 
 ---
 

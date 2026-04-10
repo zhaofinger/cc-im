@@ -68,6 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/zhaofinger/cc-im/main/install.sh | 
 cc-im start    # 启动服务
 cc-im stop     # 停止服务
 cc-im restart  # 重启服务
+cc-im update   # 更新 cc-im 并重启服务
 cc-im status   # 查看状态
 cc-im logs     # 查看日志
 ```
@@ -109,6 +110,7 @@ bun run start
 cc-im start      # 启动服务（安装后可用）
 cc-im stop       # 停止服务
 cc-im restart    # 重启服务
+cc-im update     # 更新 cc-im 并重启服务
 cc-im status     # 查看状态
 cc-im logs       # 查看日志
 

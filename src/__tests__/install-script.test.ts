@@ -197,6 +197,8 @@ describe("install.sh", () => {
     expect(result.exitCode).toBe(0);
     const launcher = result.stdout.toString();
     expect(launcher).toContain('""|--help|-h)');
+    expect(launcher).toContain('update)\n            bash "');
+    expect(launcher).toContain('/install.sh"');
     expect(launcher).toContain("status)\n            systemctl --user status cc-im --no-pager");
     expect(launcher).not.toContain(
       'if [[ -f "$HOME/.config/systemd/user/cc-im.service" ]]; then\n    echo "Usage:"',

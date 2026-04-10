@@ -658,6 +658,9 @@ if [[ -f "\$HOME/.config/systemd/user/cc-im.service" ]]; then
             systemctl --user restart cc-im
             echo "Service restarted"
             ;;
+        update)
+            bash "$INSTALL_DIR/install.sh"
+            ;;
         status)
             systemctl --user status cc-im --no-pager
             ;;
@@ -669,6 +672,7 @@ if [[ -f "\$HOME/.config/systemd/user/cc-im.service" ]]; then
             echo "  cc-im start    - Start the service"
             echo "  cc-im stop     - Stop the service"
             echo "  cc-im restart  - Restart the service"
+            echo "  cc-im update   - Update cc-im and restart service"
             echo "  cc-im status   - Check service status"
             echo "  cc-im logs     - View logs"
             ;;
@@ -702,6 +706,9 @@ if [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             launchctl start com.cc-im.app
             echo "Service restarted"
             ;;
+        update)
+            bash "$INSTALL_DIR/install.sh"
+            ;;
         status)
             launchctl print "gui/\$(id - u)/com.cc-im.app" 2>/dev/null || echo "Service not running"
             ;;
@@ -713,6 +720,7 @@ if [[ -f "\$HOME/Library/LaunchAgents/com.cc-im.app.plist" ]]; then
             echo "  cc-im start    - Start the service"
             echo "  cc-im stop     - Stop the service"
             echo "  cc-im restart  - Restart the service"
+            echo "  cc-im update   - Update cc-im and restart service"
             echo "  cc-im status   - Check service status"
             echo "  cc-im logs     - View logs"
             ;;
@@ -804,6 +812,7 @@ main() {
         echo "  cc-im start    - Start the service"
         echo "  cc-im stop     - Stop the service"
         echo "  cc-im restart  - Restart the service"
+        echo "  cc-im update   - Update cc-im and restart service"
         echo "  cc-im status   - Check service status"
         echo "  cc-im logs     - View logs"
         echo ""
