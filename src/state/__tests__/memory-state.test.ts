@@ -131,6 +131,23 @@ describe("MemoryState", () => {
     });
   });
 
+  describe("resetWorkspaceSession", () => {
+    test("should clear sessionId and keep cached metadata", () => {
+      memoryState.setWorkspaceSession({
+        workspacePath: "/workspace",
+        workspaceName: "workspace",
+        sessionId: "session-123",
+        slashCommands: ["/commit"],
+        lastTouchedAt: 1,
+      });
+
+      const resetSession = memoryState.resetWorkspaceSession("/workspace");
+      expect(resetSession?.sessionId).toBe("");
+      expect(resetSession?.slashCommands).toEqual(["/commit"]);
+      expect(resetSession?.workspaceName).toBe("workspace");
+    });
+  });
+
   describe("setActiveRun", () => {
     test("should set active run", () => {
       const state = memoryState.setActiveRun(123456, "run-123", "running");

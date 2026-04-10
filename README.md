@@ -142,12 +142,15 @@ Copy `.env.example` to `.env` and configure:
 | ------------ | ----------------------------- |
 | `/start`     | Show help                     |
 | `/workspace` | Choose a workspace            |
+| `/new`       | Start a new Claude session    |
 | `/mode`      | Choose Claude permission mode |
 | `/status`    | Show current status           |
 | `/stop`      | Stop the active run           |
 | `/cc`        | Show Claude slash commands    |
 
 Any other text or commands are forwarded directly to Claude Code in the selected workspace.
+
+`/new` keeps the selected workspace and permission mode, but clears the current Claude session so the next message starts a fresh conversation.
 
 ---
 

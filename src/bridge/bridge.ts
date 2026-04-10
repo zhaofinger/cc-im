@@ -128,6 +128,7 @@ export class Bridge {
     await this.telegram.setMyCommands([
       { command: "start", description: "ℹ️ Show help" },
       { command: "workspace", description: "📁 Choose a workspace" },
+      { command: "new", description: "🆕 Start a new Claude session" },
       { command: "mode", description: "🛂 Choose permission mode" },
       { command: "status", description: "📊 Show current status" },
       { command: "stop", description: "⏹️ Stop the active run" },
@@ -161,6 +162,7 @@ export class Bridge {
 
 ${FormattedString.bold("Commands")}
 ${FormattedString.code("/workspace")} - choose a workspace
+${FormattedString.code("/new")} - start a new Claude session
 ${FormattedString.code("/mode")} - choose Claude permission mode
 ${FormattedString.code("/status")} - show current status
 ${FormattedString.code("/stop")} - stop the current run
@@ -179,6 +181,11 @@ All other text is forwarded to Claude Code.
 
     if (text === "/status") {
       await this.showStatus(chatId);
+      return;
+    }
+
+    if (text === "/new") {
+      await this.startNewSession(chatId);
       return;
     }
 
@@ -353,6 +360,25 @@ Current: ${FormattedString.code(this.renderPermissionModeLabel(state.permissionM
       {
         replyMarkup: buildModeMenu(state.permissionMode),
       },
+    );
+  }
+
+  private async startNewSession(chatId: number): Promise<void> {
+    const state = this.state.getChatState(chatId);
+    if (!state.selectedWorkspace || !state.selectedWorkspaceName) {
+      await this.telegram.sendMessage(chatId, "Select a workspace first with /workspace.");
+      return;
+    }
+    if (state.activeRunId) {
+      await this.telegram.sendMessage(chatId, "Stop the active run before starting a new session.");
+      return;
+    }
+
+    this.state.resetWorkspaceSession(state.selectedWorkspace);
+    await this.telegram.sendMessage(
+      chatId,
+      fmt`🆕 ${FormattedString.bold("Started a new Claude session")}
+${FormattedString.code(state.selectedWorkspaceName)}`,
     );
   }
 

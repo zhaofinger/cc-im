@@ -95,6 +95,20 @@ export class MemoryState {
     return session;
   }
 
+  resetWorkspaceSession(workspacePath: string): WorkspaceSession | undefined {
+    const existing = this.workspaceSessions.get(workspacePath);
+    if (!existing) {
+      return undefined;
+    }
+    const resetSession: WorkspaceSession = {
+      ...existing,
+      sessionId: "",
+      lastTouchedAt: Date.now(),
+    };
+    this.workspaceSessions.set(workspacePath, resetSession);
+    return resetSession;
+  }
+
   allWorkspaceSessions(): WorkspaceSession[] {
     return [...this.workspaceSessions.values()];
   }

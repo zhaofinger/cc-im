@@ -7,6 +7,7 @@ import { Bridge } from "../bridge.ts";
 import type { AppConfig } from "../../config.ts";
 import type { AgentAdapter } from "../../agent/types.ts";
 import type { Logger } from "../../logger.ts";
+import type { MemoryState } from "../../state/memory-state.ts";
 import type { TelegramApi } from "../../telegram/api.ts";
 import type {
   ApprovalDecision,
@@ -62,6 +63,7 @@ type BridgeTestAccess = {
     },
   ) => Promise<void>;
   activeRuns: Map<number, unknown>;
+  state: MemoryState;
   scheduleProgressFlush: (chatId: number, force: boolean) => void;
   cancelProgressFlush: (activeRun: unknown) => void;
 };
@@ -236,6 +238,10 @@ describe("Bridge", () => {
         description: "📁 Choose a workspace",
       });
       expect(commandsCall!.commands).toContainEqual({
+        command: "new",
+        description: "🆕 Start a new Claude session",
+      });
+      expect(commandsCall!.commands).toContainEqual({
         command: "mode",
         description: "🛂 Choose permission mode",
       });
@@ -303,6 +309,74 @@ describe("Bridge", () => {
       expect(textOf(sent!.text)).toContain("Choose a workspace");
       expect(sent!.options).toBeDefined();
       expect(typeof sent!.options).toBe("object");
+    });
+
+    test("should require workspace before handling /new", async () => {
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/new",
+      });
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) &&
+          s.type === "send" &&
+          textOf(s.text).includes("Select a workspace first"),
+      );
+      expect(sent).toBeDefined();
+    });
+
+    test("should reset current workspace session on /new", async () => {
+      bridgeAccess.state.setSelectedWorkspace(123456, join(testDir, "workspace1"), "workspace1");
+      bridgeAccess.state.setWorkspaceSession({
+        workspacePath: join(testDir, "workspace1"),
+        workspaceName: "workspace1",
+        sessionId: "session-123",
+        slashCommands: ["/commit"],
+        lastTouchedAt: Date.now(),
+      });
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/new",
+      });
+
+      const session = bridgeAccess.state.getWorkspaceSession(join(testDir, "workspace1"));
+      expect(session?.sessionId).toBe("");
+      expect(session?.slashCommands).toEqual(["/commit"]);
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) &&
+          s.type === "send" &&
+          textOf(s.text).includes("Started a new Claude session"),
+      );
+      expect(sent).toBeDefined();
+      expect(textOf(sent!.text)).toContain("workspace1");
+    });
+
+    test("should reject /new while a run is active", async () => {
+      bridgeAccess.state.setSelectedWorkspace(123456, join(testDir, "workspace1"), "workspace1");
+      bridgeAccess.state.setActiveRun(123456, "run-123", "running");
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/new",
+      });
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) &&
+          s.type === "send" &&
+          textOf(s.text).includes("Stop the active run before starting a new session"),
+      );
+      expect(sent).toBeDefined();
     });
 
     test("should handle /status command", async () => {
