@@ -167,7 +167,7 @@ async function main(): Promise<void> {
             username: botInfo.username,
             workspaceRoot: config.workspaceRoot,
           }),
-          { parseMode: "HTML" },
+          { parse_mode: "HTML" },
         );
       } catch (error) {
         logger.error("failed to send startup notification", {

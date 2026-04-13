@@ -93,7 +93,7 @@ describe("TelegramApi", () => {
       const keyboard = {
         inline_keyboard: [[{ text: "Button", callback_data: "data" }]],
       } as unknown as import("grammy").InlineKeyboard;
-      await api.sendMessage(456, "Hello", keyboard);
+      await api.sendMessage(456, "Hello", { reply_markup: keyboard });
 
       expect(mockBot.api.sendMessage).toHaveBeenCalledWith(456, "Hello", {
         entities: undefined,
@@ -103,7 +103,7 @@ describe("TelegramApi", () => {
     });
 
     test("should include parse mode", async () => {
-      await api.sendMessage(456, "Hello", { parseMode: "HTML" });
+      await api.sendMessage(456, "Hello", { parse_mode: "HTML" });
 
       expect(mockBot.api.sendMessage).toHaveBeenCalledWith(456, "Hello", {
         entities: undefined,
@@ -188,7 +188,7 @@ describe("TelegramApi", () => {
 
     test("should include options", async () => {
       const keyboard = { inline_keyboard: [] } as unknown as import("grammy").InlineKeyboard;
-      await api.editMessageText(456, 789, "New text", { replyMarkup: keyboard });
+      await api.editMessageText(456, 789, "New text", { reply_markup: keyboard });
 
       expect(mockBot.api.editMessageText).toHaveBeenCalledWith(456, 789, "New text", {
         entities: undefined,

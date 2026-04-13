@@ -1,24 +1,9 @@
 import type { TextWithEntities } from "@grammyjs/parse-mode";
-import { Bot, InputFile, type InlineKeyboard } from "grammy";
-import type {
-  ForceReply,
-  InlineKeyboardMarkup,
-  ReplyKeyboardMarkup,
-  ReplyKeyboardRemove,
-} from "grammy/types";
+import { Bot, InputFile } from "grammy";
 import type { MessageReactionEmoji } from "./presence.ts";
 
-type ReplyMarkup =
-  | InlineKeyboard
-  | InlineKeyboardMarkup
-  | ReplyKeyboardMarkup
-  | ReplyKeyboardRemove
-  | ForceReply;
-
-type SendMessageOptions = {
-  replyMarkup?: ReplyMarkup;
-  parseMode?: "HTML" | "MarkdownV2";
-};
+type SendMessageOptions = Parameters<Bot["api"]["sendMessage"]>[2];
+type EditMessageTextOptions = Parameters<Bot["api"]["editMessageText"]>[3];
 
 type MessageInput = string | TextWithEntities;
 
@@ -34,9 +19,14 @@ export class TelegramApi {
   async sendMessage(
     chatId: number,
     text: MessageInput,
-    options?: InlineKeyboard | SendMessageOptions,
+    options?: SendMessageOptions,
   ): Promise<number> {
-    const message = await this.bot.api.sendMessage(chatId, ...this.normalizeMessage(text, options));
+    const payload = this.normalizeText(text);
+    const message = await this.bot.api.sendMessage(chatId, payload.text, {
+      ...options,
+      entities: payload.entities,
+      parse_mode: payload.entities ? undefined : options?.parse_mode,
+    });
     return message.message_id;
   }
 
@@ -74,14 +64,15 @@ export class TelegramApi {
     chatId: number,
     messageId: number,
     text: MessageInput,
-    options?: InlineKeyboard | SendMessageOptions,
+    options?: EditMessageTextOptions,
   ): Promise<void> {
     try {
-      await this.bot.api.editMessageText(
-        chatId,
-        messageId,
-        ...this.normalizeMessage(text, options),
-      );
+      const payload = this.normalizeText(text);
+      await this.bot.api.editMessageText(chatId, messageId, payload.text, {
+        ...options,
+        entities: payload.entities,
+        parse_mode: payload.entities ? undefined : options?.parse_mode,
+      });
     } catch (error) {
       if (error instanceof Error && error.message.includes("message is not modified")) {
         return;
@@ -117,40 +108,7 @@ export class TelegramApi {
     await this.bot.api.setMyCommands(commands);
   }
 
-  private normalizeOptions(options?: InlineKeyboard | SendMessageOptions): SendMessageOptions {
-    if (!options) {
-      return {};
-    }
-    if ("inline_keyboard" in options) {
-      return { replyMarkup: options };
-    }
-    return options;
-  }
-
   private normalizeText(text: MessageInput): TextWithEntities {
     return typeof text === "string" ? { text } : text;
-  }
-
-  private normalizeMessage(
-    text: MessageInput,
-    options?: InlineKeyboard | SendMessageOptions,
-  ): [
-    string,
-    {
-      entities?: TextWithEntities["entities"];
-      parse_mode?: SendMessageOptions["parseMode"];
-      reply_markup?: InlineKeyboard | InlineKeyboardMarkup;
-    },
-  ] {
-    const normalized = this.normalizeOptions(options);
-    const payload = this.normalizeText(text);
-    return [
-      payload.text,
-      {
-        entities: payload.entities,
-        parse_mode: payload.entities ? undefined : normalized.parseMode,
-        reply_markup: normalized.replyMarkup as InlineKeyboard | InlineKeyboardMarkup | undefined,
-      },
-    ];
   }
 }

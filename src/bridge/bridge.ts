@@ -261,7 +261,9 @@ All other text is forwarded to Claude Code.
       );
       return;
     }
-    await this.telegram.sendMessage(chatId, "Choose a workspace:", buildWorkspaceMenu(workspaces));
+    await this.telegram.sendMessage(chatId, "Choose a workspace:", {
+      reply_markup: buildWorkspaceMenu(workspaces),
+    });
   }
 
   private async selectWorkspace(chatId: number, workspaceName: string): Promise<void> {
@@ -288,7 +290,7 @@ All other text is forwarded to Claude Code.
         sessionId: session.sessionId,
         sections: [{ heading: "State", body: "<blockquote>workspace selected</blockquote>" }],
       }),
-      { parseMode: "HTML" },
+      { parse_mode: "HTML" },
     );
   }
 
@@ -341,7 +343,7 @@ All other text is forwarded to Claude Code.
         sessionId: session?.sessionId,
         sections,
       }),
-      { parseMode: "HTML" },
+      { parse_mode: "HTML" },
     );
   }
 
@@ -352,7 +354,7 @@ All other text is forwarded to Claude Code.
       fmt`🛂 ${FormattedString.bold("Claude permission mode")}
 Current: ${FormattedString.code(this.renderPermissionModeLabel(state.permissionMode))}`,
       {
-        replyMarkup: buildModeMenu(state.permissionMode),
+        reply_markup: buildModeMenu(state.permissionMode),
       },
     );
   }
@@ -427,12 +429,12 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
 📁 ${FormattedString.code(session.workspaceName)}`;
     if (editMessageId) {
       await this.telegram.editMessageText(chatId, editMessageId, text, {
-        replyMarkup: menu,
+        reply_markup: menu,
       });
       return;
     }
     await this.telegram.sendMessage(chatId, text, {
-      replyMarkup: menu,
+      reply_markup: menu,
     });
   }
 
@@ -495,7 +497,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
         hasCompletedOutput: false,
         toolCalls: [],
       }),
-      { parseMode: "HTML" },
+      { parse_mode: "HTML" },
     );
 
     this.state.setActiveRun(chatId, runId, "running");
@@ -734,7 +736,7 @@ ${FormattedString.code(message)}`,
       this.logger.run(activeRun.runId, "content final flush html", {
         length: html.length,
       });
-      await this.telegram.sendMessage(chatId, html, { parseMode: "HTML" });
+      await this.telegram.sendMessage(chatId, html, { parse_mode: "HTML" });
     } catch {
       this.logger.run(activeRun.runId, "content final flush plain", {
         length: clipped.length,
@@ -788,8 +790,8 @@ ${FormattedString.code(message)}`,
       };
       this.state.setPendingApproval(chatId, pendingApproval);
       void this.telegram.sendMessage(chatId, this.renderApprovalRequest(request), {
-        parseMode: "HTML",
-        replyMarkup: buildApprovalMenu(request.approvalId),
+        parse_mode: "HTML",
+        reply_markup: buildApprovalMenu(request.approvalId),
       });
     });
   }
@@ -806,7 +808,7 @@ ${FormattedString.code(message)}`,
       chatId,
       "Reply with the full replacement JSON for tool input.",
       {
-        replyMarkup: { force_reply: true, selective: true },
+        reply_markup: { force_reply: true, selective: true },
       },
     );
     this.state.setPendingInputEdit(chatId, { approvalId, promptMessageId });
@@ -919,7 +921,7 @@ ${FormattedString.code(message)}`,
     activeRun.progressUpdateInFlight = true;
     try {
       await this.telegram.editMessageText(chatId, activeRun.progressMessageId, newProgressText, {
-        parseMode: "HTML",
+        parse_mode: "HTML",
       });
       activeRun.lastProgressFlushedText = newProgressText;
       activeRun.progressRateLimitedUntil = undefined;
