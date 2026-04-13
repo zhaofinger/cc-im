@@ -18,6 +18,7 @@ A Telegram bridge for Claude Code, built with Bun + TypeScript. Control Claude C
 - 🛡️ **Secure Approval Flow** - Approve or reject sensitive operations from your phone
 - 🛂 **Permission Modes** - Switch between default, accept-edits, plan, and bypass modes from Telegram
 - 💬 **Interactive Commands** - Paginated slash command menu (/cc)
+- 🖼️ **Telegram Image Input** - Forward photos and image documents by saving them locally and passing their paths to Claude Code
 - 📝 **Session Persistence** - Maintains Claude sessions per workspace
 - 🎨 **Beautiful Status Display** - Box-style status messages with emoji indicators
 
@@ -151,6 +152,7 @@ Copy `.env.example` to `.env` and configure:
 | `/cc`        | Show Claude slash commands    |
 
 Any other text or commands are forwarded directly to Claude Code in the selected workspace.
+Telegram photos and image documents are also forwarded: cc-im saves them under `LOG_DIR/telegram-media/...` and includes the local file paths in the prompt sent to Claude Code.
 
 `/new` keeps the selected workspace and permission mode, but clears the current Claude session so the next message starts a fresh conversation.
 
@@ -177,7 +179,7 @@ Status includes:
 - Spinner indicator while running, checkmark when completed
 - Current workspace, git branch, and dirty status
 - Permission mode indicator
-- Tool call history with expandable details
+- Full tool call history for the current run, with expandable details
 
 When Claude requests permission for a tool call, the bot can:
 

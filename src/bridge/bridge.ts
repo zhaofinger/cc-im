@@ -18,10 +18,13 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
   ClaudeEvent,
+  MessageAttachment,
   PermissionMode,
+  UserMessageInput,
 } from "../types.ts";
 import { markdownToTelegramHtml } from "../utils/telegram-formatting.ts";
 import { escapeHtml } from "../utils/telegram-formatting.ts";
+import { buildStatusCardSections, renderPermissionModeLabel } from "../utils/status-view.ts";
 import { clipForTelegram } from "../utils/string.ts";
 import { listWorkspaceNames, resolveWorkspacePath } from "../utils/workspace.ts";
 
@@ -90,15 +93,6 @@ const BOT_COMMANDS = [
   { command: "cc", description: "🤖 Open Claude command menu" },
 ] as const;
 
-const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
-  acceptEdits: "⏵︎⏵︎ acceptEdits mode on",
-  auto: "auto mode on",
-  bypassPermissions: "⏵︎⏵︎ bypassPermissions mode on",
-  default: "default mode on",
-  dontAsk: "⏵︎⏵︎ dontAsk mode on",
-  plan: "plan mode on",
-};
-
 const PROGRESS_PREFIXES = {
   PHASE: "phase:",
   APPROVAL: "approval:",
@@ -139,26 +133,28 @@ export class Bridge {
       return;
     }
 
-    const text = (message.text || "").trim();
-    if (!text) {
+    const text = message.text?.trim();
+    const attachments = message.attachments || [];
+    if (!text && attachments.length === 0) {
       return;
     }
 
     const state = this.state.getChatState(chatId);
 
-    if (state.pendingInputEdit && !text.startsWith("/")) {
+    if (state.pendingInputEdit && text && !text.startsWith("/")) {
       await this.handleApprovalInputEdit(chatId, text);
       return;
     }
 
-    const handler = {
-      "/cc": () => this.showClaudeMenu(chatId, 0),
-      "/mode": () => this.showModeMenu(chatId),
-      "/new": () => this.startNewSession(chatId),
-      "/start": () =>
-        this.telegram.sendMessage(
-          chatId,
-          fmt`${FormattedString.bold("cc-im")}
+    if (text && attachments.length === 0) {
+      const handler = {
+        "/cc": () => this.showClaudeMenu(chatId, 0),
+        "/mode": () => this.showModeMenu(chatId),
+        "/new": () => this.startNewSession(chatId),
+        "/start": () =>
+          this.telegram.sendMessage(
+            chatId,
+            fmt`${FormattedString.bold("cc-im")}
 
 ${FormattedString.bold("Commands")}
 ${FormattedString.code("/workspace")} - choose a workspace
@@ -170,17 +166,25 @@ ${FormattedString.code("/cc")} - show Claude slash commands
 
 All other text is forwarded to Claude Code.
 `,
-        ),
-      "/status": () => this.showStatus(chatId),
-      "/stop": () => this.stopRun(chatId),
-      "/workspace": () => this.showWorkspaceMenu(chatId),
-    }[text];
-    if (handler) {
-      await handler();
-      return;
+          ),
+        "/status": () => this.showStatus(chatId),
+        "/stop": () => this.stopRun(chatId),
+        "/workspace": () => this.showWorkspaceMenu(chatId),
+      }[text];
+      if (handler) {
+        await handler();
+        return;
+      }
     }
 
-    await this.forwardToClaude(chatId, text, message.updateId);
+    await this.forwardToClaude(
+      chatId,
+      {
+        text,
+        attachments,
+      },
+      message.updateId,
+    );
   }
 
   async handleCallback(callback: AppCallback): Promise<void> {
@@ -204,7 +208,10 @@ All other text is forwarded to Claude Code.
             callback.messageId,
           ),
       ],
-      ["ccrun:", (value: string) => this.forwardToClaude(chatId, `/${value}`, callback.messageId)],
+      [
+        "ccrun:",
+        (value: string) => this.forwardToClaude(chatId, { text: `/${value}` }, callback.messageId),
+      ],
       ["approve:", (value: string) => this.resolveApproval(chatId, value, { type: "approve" })],
       ["edit:", (value: string) => this.promptApprovalInputEdit(chatId, value)],
       ["reject:", (value: string) => this.resolveApproval(chatId, value, { type: "reject" })],
@@ -287,6 +294,7 @@ All other text is forwarded to Claude Code.
 
   private async showStatus(chatId: number): Promise<void> {
     const state = this.state.getChatState(chatId);
+    const activeRun = this.activeRuns.get(chatId);
     const session = state.selectedWorkspace
       ? this.state.getWorkspaceSession(state.selectedWorkspace)
       : undefined;
@@ -294,22 +302,32 @@ All other text is forwarded to Claude Code.
       state.selectedWorkspace && state.selectedWorkspaceName
         ? await this.describeWorkspaceStatus(state.selectedWorkspace, state.selectedWorkspaceName)
         : "no workspace";
+    const sectionValues = buildStatusCardSections({
+      state,
+      activeRun: activeRun ? { runId: activeRun.runId, phase: activeRun.phase } : undefined,
+      fallbackMode: this.config.claudeDefaultPermissionMode,
+    });
     const sections: StatusSection[] = [
       {
         heading: "Mode",
-        body: `<blockquote>${escapeHtml(this.renderPermissionModeLabel(state.permissionMode))}</blockquote>`,
+        body: `<blockquote>${escapeHtml(sectionValues.mode)}</blockquote>`,
       },
-      ...(state.status !== "idle" || state.activeRunId
-        ? [{ heading: "State", body: `<blockquote>${escapeHtml(state.status)}</blockquote>` }]
+      ...(sectionValues.state
+        ? [
+            {
+              heading: "State",
+              body: `<blockquote>${escapeHtml(sectionValues.state)}</blockquote>`,
+            },
+          ]
         : []),
-      ...(state.activeRunId
-        ? [{ heading: "Run", body: `<blockquote>${escapeHtml(state.activeRunId)}</blockquote>` }]
+      ...(sectionValues.run
+        ? [{ heading: "Run", body: `<blockquote>${escapeHtml(sectionValues.run)}</blockquote>` }]
         : []),
-      ...(state.pendingApproval
+      ...(sectionValues.approval
         ? [
             {
               heading: "Approval",
-              body: `<blockquote>${escapeHtml(state.pendingApproval.id)}</blockquote>`,
+              body: `<blockquote>${escapeHtml(sectionValues.approval)}</blockquote>`,
             },
           ]
         : []),
@@ -437,12 +455,16 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
     await this.telegram.sendMessage(chatId, "Stopped the active run.");
   }
 
-  private async forwardToClaude(chatId: number, text: string, draftId?: number): Promise<void> {
+  private async forwardToClaude(
+    chatId: number,
+    message: UserMessageInput,
+    draftId?: number,
+  ): Promise<void> {
     const selected = await this.requireWorkspace(chatId);
     if (!selected) return;
     const { state } = selected;
     if (state.activeRunId) {
-      state.messageQueue.push(text);
+      state.messageQueue.push(message);
       await this.telegram.sendMessage(
         chatId,
         `⏳ Message queued (${state.messageQueue.length} in queue). Will process after current run completes.`,
@@ -450,16 +472,21 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
       return;
     }
 
-    await this.executeClaudeRun(chatId, text, draftId);
+    await this.executeClaudeRun(chatId, message, draftId);
   }
 
-  private async executeClaudeRun(chatId: number, text: string, draftId?: number): Promise<void> {
+  private async executeClaudeRun(
+    chatId: number,
+    message: UserMessageInput,
+    draftId?: number,
+  ): Promise<void> {
     const selected = this.getSelectedWorkspace(chatId);
     if (!selected) return;
     const { state, workspacePath, workspaceName } = selected;
     const permissionMode = state.permissionMode;
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
+    const prompt = this.buildAgentPrompt(message);
     const runId = randomUUID();
     const progressMessageId = await this.telegram.sendMessage(
       chatId,
@@ -493,7 +520,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
       runId,
       workspacePath,
       sessionId: existingSession?.sessionId || undefined,
-      message: text,
+      message: prompt,
       mode: permissionMode,
       requestApproval: (request) => this.waitForApproval(chatId, runId, request),
       onEvent: async (event) => {
@@ -931,9 +958,6 @@ ${FormattedString.code(message)}`,
       activeRun.currentToolCall = toolCall;
       activeRun.phase = "Using tool";
       activeRun.toolCalls.push(toolCall);
-      if (activeRun.toolCalls.length > 10) {
-        activeRun.toolCalls.shift();
-      }
       return;
     }
 
@@ -1060,7 +1084,7 @@ ${FormattedString.code(message)}`,
   }
 
   private renderPermissionModeLabel(mode?: PermissionMode): string {
-    return PERMISSION_MODE_LABELS[mode || this.config.claudeDefaultPermissionMode];
+    return renderPermissionModeLabel(mode, this.config.claudeDefaultPermissionMode);
   }
 
   private renderApprovalRequest(request: ApprovalRequest): string {
@@ -1105,22 +1129,20 @@ ${FormattedString.code(message)}`,
     currentToolCall?: ToolCall,
     runningSpinner?: string,
   ): string[] {
-    return [
-      ...(currentToolCall
-        ? [
-            this.renderToolUseBlock(
-              runningSpinner || "…",
-              currentToolCall,
-              TOOL_STATUS_LABELS.RUNNING,
-            ),
-          ]
-        : []),
-      ...toolCalls
-        .slice(-5)
-        .reverse()
-        .filter((tool) => tool.id !== currentToolCall?.id && tool.status !== "running")
-        .map((tool) => this.renderToolUseBlock(tool.status === "completed" ? "✓" : "×", tool)),
-    ];
+    const orderedToolCalls =
+      currentToolCall && !toolCalls.some((tool) => tool.id === currentToolCall.id)
+        ? [...toolCalls, currentToolCall]
+        : toolCalls;
+
+    return orderedToolCalls.map((tool) =>
+      this.renderToolUseBlock(
+        tool.status === "running" ? runningSpinner || "…" : tool.status === "completed" ? "✓" : "×",
+        tool,
+        tool.id === currentToolCall?.id && tool.status === "running"
+          ? TOOL_STATUS_LABELS.RUNNING
+          : undefined,
+      ),
+    );
   }
 
   private renderToolUseBlock(icon: string, tool: ToolCall, suffix?: string): string {
@@ -1177,6 +1199,37 @@ ${FormattedString.code(message)}`,
       await this.telegram.sendMessage(chatId, `▶️ Processing queued message...`);
       await this.forwardToClaude(chatId, nextMessage);
     }
+  }
+
+  private buildAgentPrompt(message: UserMessageInput): string {
+    const sections = [message.text?.trim(), this.formatAttachmentContext(message.attachments)]
+      .filter((section): section is string => !!section)
+      .map((section) => section.trim())
+      .filter(Boolean);
+
+    return sections.join("\n\n");
+  }
+
+  private formatAttachmentContext(attachments?: MessageAttachment[]): string {
+    if (!attachments || attachments.length === 0) {
+      return "";
+    }
+
+    const lines = ["Attached image files:"];
+    for (const attachment of attachments) {
+      if (attachment.kind !== "image") {
+        continue;
+      }
+      const dimensions =
+        attachment.width && attachment.height ? `${attachment.width}x${attachment.height}` : "n/a";
+      const size = attachment.fileSize ? `${attachment.fileSize} bytes` : "unknown size";
+      lines.push(`- ${attachment.localPath} (${attachment.mimeType}, ${dimensions}, ${size})`);
+      if (attachment.caption) {
+        lines.push(`  caption: ${attachment.caption}`);
+      }
+    }
+    lines.push("The image has been saved locally. If useful, inspect it via available tools.");
+    return lines.join("\n");
   }
 }
 

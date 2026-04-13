@@ -2,7 +2,27 @@ export type AppMessage = {
   chatId: number;
   messageId: number;
   updateId: number;
-  text: string;
+  text?: string;
+  attachments?: MessageAttachment[];
+};
+
+export type ImageAttachment = {
+  kind: "image";
+  localPath: string;
+  originalFileName?: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+  fileSize?: number;
+  caption?: string;
+  sourceMessageId: number;
+};
+
+export type MessageAttachment = ImageAttachment;
+
+export type UserMessageInput = {
+  text?: string;
+  attachments?: MessageAttachment[];
 };
 
 export type AppCallback = {
@@ -31,7 +51,7 @@ export type ChatState = {
   permissionMode: PermissionMode;
   pendingApproval?: PendingApproval;
   pendingInputEdit?: PendingInputEdit;
-  messageQueue: string[];
+  messageQueue: UserMessageInput[];
 };
 
 export type PersistedChatSelection = {

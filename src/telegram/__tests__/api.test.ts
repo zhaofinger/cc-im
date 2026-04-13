@@ -1,4 +1,7 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { TelegramApi } from "../api.ts";
 
 type MockBot = {
@@ -6,8 +9,10 @@ type MockBot = {
     sendMessage: ReturnType<typeof mock>;
     sendMessageDraft: ReturnType<typeof mock>;
     getMe: ReturnType<typeof mock>;
+    getFile: ReturnType<typeof mock>;
     editMessageText: ReturnType<typeof mock>;
     answerCallbackQuery: ReturnType<typeof mock>;
+    sendPhoto: ReturnType<typeof mock>;
     sendChatAction: ReturnType<typeof mock>;
     setMessageReaction: ReturnType<typeof mock>;
     setMyCommands: ReturnType<typeof mock>;
@@ -20,8 +25,10 @@ const createMockBot = (): MockBot => ({
     sendMessage: mock(() => Promise.resolve({ message_id: 123 })),
     sendMessageDraft: mock(() => Promise.resolve()),
     getMe: mock(() => Promise.resolve({ id: 12345, username: "testbot" })),
+    getFile: mock(() => Promise.resolve({ file_path: "photos/test.png", file_size: 42 })),
     editMessageText: mock(() => Promise.resolve()),
     answerCallbackQuery: mock(() => Promise.resolve()),
+    sendPhoto: mock(() => Promise.resolve({ message_id: 456 })),
     sendChatAction: mock(() => Promise.resolve()),
     setMessageReaction: mock(() => Promise.resolve()),
     setMyCommands: mock(() => Promise.resolve()),
@@ -31,8 +38,10 @@ const createMockBot = (): MockBot => ({
 describe("TelegramApi", () => {
   let api: TelegramApi;
   let mockBot: ReturnType<typeof createMockBot>;
+  let testDir: string;
 
   beforeEach(() => {
+    testDir = join(tmpdir(), `telegram-api-test-${Date.now()}`);
     mockBot = createMockBot();
     api = new TelegramApi("test-token");
     Object.defineProperty(api, "bot", {
@@ -40,6 +49,10 @@ describe("TelegramApi", () => {
       configurable: true,
       writable: true,
     });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
   });
 
   describe("constructor", () => {
@@ -124,6 +137,44 @@ describe("TelegramApi", () => {
     });
   });
 
+  describe("getFile", () => {
+    test("should return file metadata", async () => {
+      const result = await api.getFile("file-123");
+
+      expect(mockBot.api.getFile).toHaveBeenCalledWith("file-123");
+      expect(result).toEqual({
+        file_path: "photos/test.png",
+        file_size: 42,
+      });
+    });
+  });
+
+  describe("downloadFile", () => {
+    test("should download a telegram file to disk", async () => {
+      const localPath = join(testDir, "downloaded.png");
+      const originalFetch = global.fetch;
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]), {
+            status: 200,
+          }),
+        ),
+      ) as unknown as typeof global.fetch;
+
+      try {
+        const result = await api.downloadFile("photos/test.png", localPath);
+
+        expect(global.fetch).toHaveBeenCalledWith(
+          "https://api.telegram.org/file/bottest-token/photos/test.png",
+        );
+        expect(result).toBe(localPath);
+        expect(await Bun.file(localPath).bytes()).toEqual(new Uint8Array([1, 2, 3]));
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+  });
+
   describe("editMessageText", () => {
     test("should edit message text", async () => {
       await api.editMessageText(456, 789, "New text");
@@ -184,6 +235,17 @@ describe("TelegramApi", () => {
       await api.sendTyping(456);
 
       expect(mockBot.api.sendChatAction).toHaveBeenCalledWith(456, "typing");
+    });
+  });
+
+  describe("sendPhoto", () => {
+    test("should send a photo from a local path", async () => {
+      const result = await api.sendPhoto(456, "/tmp/example.png", "caption");
+
+      expect(mockBot.api.sendPhoto).toHaveBeenCalledTimes(1);
+      expect(mockBot.api.sendPhoto.mock.calls[0]?.[0]).toBe(456);
+      expect(mockBot.api.sendPhoto.mock.calls[0]?.[2]).toEqual({ caption: "caption" });
+      expect(result).toBe(456);
     });
   });
 

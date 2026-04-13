@@ -13,6 +13,7 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
   ClaudeEvent,
+  ImageAttachment,
   PermissionMode,
 } from "../../types.ts";
 
@@ -21,6 +22,7 @@ type SentRecord =
   | { type: "draft"; chatId: number; draftId: number; text: string }
   | { type: "edit"; chatId: number; messageId: number; text: unknown; options?: unknown }
   | { type: "answerCallback"; callbackQueryId: string; text?: string }
+  | { type: "photo"; chatId: number; photoPath: string; caption?: string }
   | { type: "typing"; chatId: number }
   | { type: "commands"; commands: unknown[] };
 
@@ -136,6 +138,8 @@ function createMockTelegramApi(): TelegramApi & { sent: SentRecord[] } {
       sent.push({ type: "draft", chatId, draftId, text });
     },
     getMe: async () => ({ id: 12345, username: "testbot" }),
+    getFile: async () => ({ file_path: "photos/test.png", file_size: 42 }),
+    downloadFile: async (_filePath: string, localPath: string) => localPath,
     editMessageText: async (
       chatId: number,
       messageId: number,
@@ -146,6 +150,10 @@ function createMockTelegramApi(): TelegramApi & { sent: SentRecord[] } {
     },
     answerCallbackQuery: async (callbackQueryId: string, text?: string) => {
       sent.push({ type: "answerCallback", callbackQueryId, text });
+    },
+    sendPhoto: async (chatId: number, photoPath: string, caption?: string) => {
+      sent.push({ type: "photo", chatId, photoPath, caption });
+      return 54321;
     },
     sendTyping: async (chatId: number) => {
       sent.push({ type: "typing", chatId });
@@ -190,6 +198,19 @@ function createMockAgent(): AgentAdapter & { calls: AgentCall[] } {
       };
     },
   } as AgentAdapter & { calls: AgentCall[] };
+}
+
+function createImageAttachment(localPath: string): ImageAttachment {
+  return {
+    kind: "image",
+    localPath,
+    mimeType: "image/png",
+    width: 400,
+    height: 300,
+    fileSize: 1024,
+    caption: "look at this",
+    sourceMessageId: 99,
+  };
 }
 
 describe("Bridge", () => {
@@ -395,6 +416,54 @@ describe("Bridge", () => {
       expect(textOf(sent!.text)).toContain("⏵︎⏵︎ bypassPermissions mode on");
     });
 
+    test("should render unified status details for active runs and approvals", async () => {
+      bridgeAccess.state.setSelectedWorkspace(123456, join(testDir, "workspace1"), "workspace1");
+      bridgeAccess.state.setActiveRun(123456, "run-123", "running");
+      bridgeAccess.state.setPendingApproval(123456, {
+        id: "approval-1",
+        runId: "run-123",
+        request: {
+          approvalId: "approval-1",
+          toolName: "Bash",
+          input: {},
+        },
+        createdAt: Date.now(),
+      });
+      bridgeAccess.activeRuns.set(123456, {
+        runId: "run-123",
+        progressMessageId: 1,
+        stop: () => {},
+        contentDraftId: 1,
+        accumulatedText: "",
+        lastFlushedText: "",
+        phase: "Using tool",
+        lastProgressFlushedText: "",
+        sessionId: "session-123",
+        workspaceStatusLine: "workspace1 main ✓",
+        toolCalls: [],
+        startTime: Date.now(),
+      });
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/status",
+      });
+
+      const sent = [...telegram.sent]
+        .reverse()
+        .find(
+          (s): s is Extract<SentRecord, { type: "send" }> =>
+            isSentRecord(s) && s.type === "send" && textOf(s.text).includes("CC-IM Status"),
+        );
+      expect(sent).toBeDefined();
+      expect(textOf(sent!.text)).toContain("Awaiting approval for Bash");
+      expect(textOf(sent!.text)).toContain("run-123\nUsing tool");
+      expect(textOf(sent!.text)).toContain("approval-1\nTool: Bash");
+      expect(textOf(sent!.text)).not.toContain("<blockquote>awaiting_approval</blockquote>");
+    });
+
     test("should handle /mode command", async () => {
       await bridge.handleMessage({
         chatId: 123456,
@@ -460,6 +529,30 @@ describe("Bridge", () => {
       // The mock agent's async event simulation makes it difficult to
       // reliably test the "run already active" check
       expect(true).toBe(true);
+    });
+
+    test("should forward image attachments as local file context", async () => {
+      bridgeAccess.state.setSelectedWorkspace(123456, join(testDir, "workspace1"), "workspace1");
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "what is in this image?",
+        attachments: [createImageAttachment("/tmp/telegram-media/image-1.png")],
+      });
+
+      const sendMessageCall = agent.calls.find(
+        (call): call is Extract<AgentCall, { method: "sendMessage" }> =>
+          isAgentCall(call) && call.method === "sendMessage",
+      );
+      expect(sendMessageCall).toBeDefined();
+      expect(sendMessageCall?.message).toContain("what is in this image?");
+      expect(sendMessageCall?.message).toContain("Attached image files:");
+      expect(sendMessageCall?.message).toContain("/tmp/telegram-media/image-1.png");
+      expect(sendMessageCall?.message).toContain("image/png");
+      expect(sendMessageCall?.message).toContain("400x300");
+      expect(sendMessageCall?.message).toContain("The image has been saved locally.");
     });
 
     test("should ignore empty messages", async () => {
@@ -830,8 +923,32 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b>✅ Claude Code</b>");
       expect(text).toContain("<b>Tool</b>");
-      expect(text).toContain("<blockquote expandable>⠋ read 正在执行\nsrc/main.ts</blockquote>");
       expect(text).toContain("<blockquote expandable>✓ bash\ncurl -s wttr.in/test</blockquote>");
+      expect(text).toContain("<blockquote expandable>⠋ read 正在执行\nsrc/main.ts</blockquote>");
+      expect(text.indexOf("✓ bash\ncurl -s wttr.in/test")).toBeLessThan(
+        text.indexOf("⠋ read 正在执行\nsrc/main.ts"),
+      );
+    });
+
+    test("should render the full tool list without truncation", () => {
+      const toolCalls = Array.from({ length: 10 }, (_, index) => ({
+        id: `tool-${index + 1}`,
+        name: `tool-${index + 1}`,
+        status: "completed" as const,
+        input: `input-${index + 1}`,
+        startedAt: Date.now(),
+      }));
+
+      const text = bridgeAccess.renderInitialProgressText({
+        workspaceStatusLine: "workspace1 feat-branch ✗",
+        hasCompletedOutput: true,
+        toolCalls,
+        spinnerIndex: 0,
+      });
+
+      for (let index = 1; index <= 10; index += 1) {
+        expect(text).toContain(`✓ tool-${index}\ninput-${index}`);
+      }
     });
 
     test("should render permission mode label", () => {

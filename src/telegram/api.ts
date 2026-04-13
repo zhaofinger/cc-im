@@ -1,5 +1,5 @@
 import type { TextWithEntities } from "@grammyjs/parse-mode";
-import { Bot, type InlineKeyboard } from "grammy";
+import { Bot, InputFile, type InlineKeyboard } from "grammy";
 import type {
   ForceReply,
   InlineKeyboardMarkup,
@@ -24,8 +24,10 @@ type MessageInput = string | TextWithEntities;
 
 export class TelegramApi {
   readonly bot: Bot;
+  private readonly token: string;
 
   constructor(token: string) {
+    this.token = token;
     this.bot = new Bot(token);
   }
 
@@ -50,6 +52,24 @@ export class TelegramApi {
     };
   }
 
+  async getFile(fileId: string): Promise<{ file_path?: string; file_size?: number }> {
+    const file = await this.bot.api.getFile(fileId);
+    return {
+      file_path: file.file_path,
+      file_size: file.file_size,
+    };
+  }
+
+  async downloadFile(filePath: string, localPath: string): Promise<string> {
+    const response = await fetch(`https://api.telegram.org/file/bot${this.token}/${filePath}`);
+    if (!response.ok) {
+      throw new Error(`Failed to download Telegram file: ${response.status}`);
+    }
+    const bytes = await response.arrayBuffer();
+    await Bun.write(localPath, new Uint8Array(bytes));
+    return localPath;
+  }
+
   async editMessageText(
     chatId: number,
     messageId: number,
@@ -72,6 +92,13 @@ export class TelegramApi {
 
   async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
     await this.bot.api.answerCallbackQuery(callbackQueryId, { text });
+  }
+
+  async sendPhoto(chatId: number, photoPath: string, caption?: string): Promise<number> {
+    const message = await this.bot.api.sendPhoto(chatId, new InputFile(photoPath), {
+      caption,
+    });
+    return message.message_id;
   }
 
   async sendTyping(chatId: number): Promise<void> {
