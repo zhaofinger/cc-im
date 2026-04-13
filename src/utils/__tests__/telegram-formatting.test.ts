@@ -39,8 +39,7 @@ describe("escapeHtml", () => {
     expect(escapeHtml("🎉")).toBe("🎉");
   });
 
-  test("should handle quotes (not escaped by current implementation)", () => {
-    // Note: quotes are not escaped, which might be intentional
+  test("should handle quotes in plain text", () => {
     expect(escapeHtml('"quoted"')).toBe('"quoted"');
     expect(escapeHtml("'single'")).toBe("'single'");
   });
@@ -132,8 +131,7 @@ describe("markdownToTelegramHtml", () => {
   });
 
   test("should handle italic with word boundaries correctly", () => {
-    // * should not match at word boundaries
-    expect(markdownToTelegramHtml("not*italic*here")).toBe("not*italic*here");
+    expect(markdownToTelegramHtml("not*italic*here")).toBe("not<i>italic</i>here");
     expect(markdownToTelegramHtml("*italic*")).toBe("<i>italic</i>");
   });
 
@@ -157,9 +155,14 @@ describe("markdownToTelegramHtml", () => {
   test("should handle list items", () => {
     const input = "- item 1\n- item 2";
     const result = markdownToTelegramHtml(input);
-    // Lists are not specifically handled, should pass through
     expect(result).toContain("- item 1");
     expect(result).toContain("- item 2");
+  });
+
+  test("should render blockquotes as telegram blockquotes", () => {
+    const input = "> quote line 1\n> quote line 2";
+    const result = markdownToTelegramHtml(input);
+    expect(result).toBe("<blockquote>quote line 1\nquote line 2</blockquote>");
   });
 
   test("should handle complex nested structure", () => {
@@ -172,7 +175,7 @@ function test() {
 \`\`\`
 More text`;
     const result = markdownToTelegramHtml(input);
-    expect(result).toContain("<b>Title with <b>bold</b></b>");
+    expect(result).toContain("<b>Title with bold</b>");
     expect(result).toContain("<code>inline code</code>");
     expect(result).toContain(
       '<pre><code>function test() {\n  return "**not bold**";\n}</code></pre>',
@@ -182,15 +185,27 @@ More text`;
   test("should handle links with special characters", () => {
     const input = "[link](https://example.com?foo=bar&baz=qux)";
     const result = markdownToTelegramHtml(input);
-    // Bug: & gets escaped to &amp; before link processing
-    expect(result).toContain('href="https://example.com?foo=bar');
-    expect(result).toContain("link</a>");
+    expect(result).toBe('<a href="https://example.com?foo=bar&amp;baz=qux">link</a>');
+  });
+
+  test("should escape quotes inside link href attributes", () => {
+    const input = "[link](https://example.com?a=\"quoted\"&b='single')";
+    const result = markdownToTelegramHtml(input);
+    expect(result).toBe(
+      '<a href="https://example.com?a=%22quoted%22&amp;b=&#39;single&#39;">link</a>',
+    );
+  });
+
+  test("should handle links with balanced parentheses", () => {
+    const input = "[link](https://example.com/path(foo))";
+    const result = markdownToTelegramHtml(input);
+    expect(result).toBe('<a href="https://example.com/path(foo)">link</a>');
   });
 
   test("should handle strikethrough edge cases", () => {
     expect(markdownToTelegramHtml("~~")).toBe("~~");
-    expect(markdownToTelegramHtml("~~~")).toBe("~~~");
-    expect(markdownToTelegramHtml("~~~~")).toBe("~~~~"); // empty match doesn't convert
+    expect(markdownToTelegramHtml("~~~")).toBe("<pre><code></code></pre>");
+    expect(markdownToTelegramHtml("~~~~")).toBe("<pre><code></code></pre>");
   });
 
   test("should preserve line breaks", () => {

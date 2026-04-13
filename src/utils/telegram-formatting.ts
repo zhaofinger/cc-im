@@ -1,49 +1,298 @@
+import MarkdownIt from "markdown-it";
+import type Token from "markdown-it/lib/token.mjs";
+
 export function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Use STX (\u0002) and ETX (\u0003) control characters as markers because:
-// 1. They are extremely unlikely to appear in normal Markdown text
-// 2. They are single characters, making the regex patterns more efficient
-// 3. They have distinct start/end meanings (STX = Start of Text, ETX = End of Text)
+function escapeHtmlAttribute(text: string): string {
+  return escapeHtml(text).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: false,
+  typographer: false,
+});
+
 const MARKER_STX = "\u0002";
-const MARKER_ETX = "\u0003";
-const CODE_BLOCK_MARKER = `${MARKER_STX}CCIMCB`;
-const INLINE_CODE_MARKER = `${MARKER_ETX}CCIMIC`;
-const CODE_BLOCK_PATTERN = new RegExp(`${MARKER_STX}CCIMCB(\\d+)${MARKER_STX}`, "g");
-const INLINE_CODE_PATTERN = new RegExp(`${MARKER_ETX}CCIMIC(\\d+)${MARKER_ETX}`, "g");
+const TABLE_BLOCK_MARKER_PREFIX = `${MARKER_STX}CCIMTB`;
+const TABLE_BLOCK_MARKER_PATTERN = new RegExp(`${MARKER_STX}CCIMTB(\\d+)${MARKER_STX}`, "g");
 
 export function markdownToTelegramHtml(md: string): string {
-  const codeBlocks: string[] = [];
-  let text = md.replace(/```[\s\S]*?```/g, (match) => {
-    const code = match.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
-    codeBlocks.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
-    return `${CODE_BLOCK_MARKER}${codeBlocks.length - 1}${MARKER_STX}`;
-  });
-
-  text = replaceMarkdownTables(text, (tableText) => {
+  const tableBlocks: string[] = [];
+  const withTablePlaceholders = replaceMarkdownTables(md, (tableText) => {
     const listText = markdownTableToList(tableText);
-    codeBlocks.push(`<pre><code>${escapeHtml(listText)}</code></pre>`);
-    return `${CODE_BLOCK_MARKER}${codeBlocks.length - 1}${MARKER_STX}`;
+    tableBlocks.push(`<pre><code>${escapeHtml(listText)}</code></pre>`);
+    return `${TABLE_BLOCK_MARKER_PREFIX}${tableBlocks.length - 1}${MARKER_STX}`;
   });
 
-  const inlineCodes: string[] = [];
-  text = text.replace(/`([^`]+)`/g, (_, code: string) => {
-    inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
-    return `${INLINE_CODE_MARKER}${inlineCodes.length - 1}${MARKER_ETX}`;
+  const tokens = markdown.parse(withTablePlaceholders, {});
+  const rendered = trimTrailingBlockSeparators(renderBlocks(tokens));
+  return rendered.replace(TABLE_BLOCK_MARKER_PATTERN, (_, index: string) => {
+    return tableBlocks[Number(index)] || "";
   });
+}
 
-  text = escapeHtml(text);
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-  text = text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
-  text = text.replace(/__(.+?)__/g, "<b>$1</b>");
-  text = text.replace(/~~(.+?)~~/g, "<s>$1</s>");
-  text = text.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, "<i>$1</i>");
-  text = text.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+function renderBlocks(
+  tokens: Token[],
+  options: { compact?: boolean; suppressBold?: boolean } = {},
+): string {
+  let output = "";
 
-  text = text.replace(CODE_BLOCK_PATTERN, (_, i) => codeBlocks[Number(i)] || "");
-  text = text.replace(INLINE_CODE_PATTERN, (_, i) => inlineCodes[Number(i)] || "");
-  return text;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+
+    switch (token.type) {
+      case "inline":
+        output += renderInline(token.children ?? [], {
+          suppressBold: options.suppressBold,
+        });
+        break;
+      case "paragraph_open": {
+        const { inner, nextIndex } = consumeBlockContainer(tokens, index, "paragraph_close", {
+          compact: options.compact,
+          suppressBold: options.suppressBold,
+        });
+        output += appendBlock(inner, options.compact ? "\n" : "\n\n");
+        index = nextIndex;
+        break;
+      }
+      case "heading_open": {
+        const { inner, nextIndex } = consumeBlockContainer(tokens, index, "heading_close", {
+          compact: options.compact,
+          suppressBold: true,
+        });
+        output += appendBlock(`<b>${trimTrailingBlockSeparators(inner)}</b>`, "\n\n");
+        index = nextIndex;
+        break;
+      }
+      case "bullet_list_open": {
+        const { inner, nextIndex } = consumeList(tokens, index, "bullet");
+        output += appendBlock(inner, options.compact ? "\n" : "\n\n");
+        index = nextIndex;
+        break;
+      }
+      case "ordered_list_open": {
+        const start = Number(token.attrGet("start") ?? "1");
+        const { inner, nextIndex } = consumeList(tokens, index, "ordered", start);
+        output += appendBlock(inner, options.compact ? "\n" : "\n\n");
+        index = nextIndex;
+        break;
+      }
+      case "blockquote_open": {
+        const { inner, nextIndex } = consumeBlockContainer(tokens, index, "blockquote_close", {
+          compact: false,
+          suppressBold: options.suppressBold,
+        });
+        output += appendBlock(
+          `<blockquote>${trimTrailingBlockSeparators(inner)}</blockquote>`,
+          options.compact ? "\n" : "\n\n",
+        );
+        index = nextIndex;
+        break;
+      }
+      case "fence":
+      case "code_block":
+        output += appendBlock(
+          renderCodeBlock(token.content ?? ""),
+          options.compact ? "\n" : "\n\n",
+        );
+        break;
+      case "hr":
+        output += appendBlock("───", options.compact ? "\n" : "\n\n");
+        break;
+      default:
+        break;
+    }
+  }
+
+  return output;
+}
+
+function consumeBlockContainer(
+  tokens: Token[],
+  startIndex: number,
+  closeType: string,
+  options: { compact?: boolean; suppressBold?: boolean } = {},
+): { inner: string; nextIndex: number } {
+  const innerTokens: Token[] = [];
+
+  for (let index = startIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token?.type === closeType) {
+      return {
+        inner: renderBlocks(innerTokens, options),
+        nextIndex: index,
+      };
+    }
+    if (token) {
+      innerTokens.push(token);
+    }
+  }
+
+  return {
+    inner: renderBlocks(innerTokens, options),
+    nextIndex: tokens.length - 1,
+  };
+}
+
+function consumeList(
+  tokens: Token[],
+  startIndex: number,
+  kind: "bullet" | "ordered",
+  orderedStart = 1,
+): { inner: string; nextIndex: number } {
+  const closeType = kind === "bullet" ? "bullet_list_close" : "ordered_list_close";
+  const items: string[] = [];
+  let itemNumber = orderedStart;
+
+  for (let index = startIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+    if (token.type === closeType) {
+      return {
+        inner: items.join("\n"),
+        nextIndex: index,
+      };
+    }
+    if (token.type !== "list_item_open") {
+      continue;
+    }
+
+    const { inner, nextIndex } = consumeBlockContainer(tokens, index, "list_item_close", {
+      compact: true,
+      suppressBold: false,
+    });
+    const prefix = kind === "ordered" ? `${itemNumber}. ` : "- ";
+    items.push(prefixListItem(trimTrailingBlockSeparators(inner), prefix));
+    itemNumber += 1;
+    index = nextIndex;
+  }
+
+  return {
+    inner: items.join("\n"),
+    nextIndex: tokens.length - 1,
+  };
+}
+
+function renderInline(tokens: Token[], options: { suppressBold?: boolean } = {}): string {
+  let output = "";
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+
+    switch (token.type) {
+      case "text":
+        output += escapeHtml(token.content);
+        break;
+      case "softbreak":
+      case "hardbreak":
+        output += "\n";
+        break;
+      case "code_inline":
+        output += `<code>${escapeHtml(token.content)}</code>`;
+        break;
+      case "strong_open": {
+        const { inner, nextIndex } = consumeInlineContainer(tokens, index, "strong_close", options);
+        output += options.suppressBold ? inner : `<b>${inner}</b>`;
+        index = nextIndex;
+        break;
+      }
+      case "em_open": {
+        const { inner, nextIndex } = consumeInlineContainer(tokens, index, "em_close", options);
+        output += `<i>${inner}</i>`;
+        index = nextIndex;
+        break;
+      }
+      case "s_open": {
+        const { inner, nextIndex } = consumeInlineContainer(tokens, index, "s_close", options);
+        output += `<s>${inner}</s>`;
+        index = nextIndex;
+        break;
+      }
+      case "link_open": {
+        const { inner, nextIndex } = consumeInlineContainer(tokens, index, "link_close", options);
+        const href = token.attrGet("href");
+        output += href ? `<a href="${escapeHtmlAttribute(href)}">${inner}</a>` : inner;
+        index = nextIndex;
+        break;
+      }
+      case "image":
+        output += escapeHtml(token.content);
+        break;
+      default:
+        if (token.children?.length) {
+          output += renderInline(token.children, options);
+        }
+        break;
+    }
+  }
+
+  return output;
+}
+
+function consumeInlineContainer(
+  tokens: Token[],
+  startIndex: number,
+  closeType: string,
+  options: { suppressBold?: boolean },
+): { inner: string; nextIndex: number } {
+  const innerTokens: Token[] = [];
+
+  for (let index = startIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token?.type === closeType) {
+      return {
+        inner: renderInline(innerTokens, options),
+        nextIndex: index,
+      };
+    }
+    if (token) {
+      innerTokens.push(token);
+    }
+  }
+
+  return {
+    inner: renderInline(innerTokens, options),
+    nextIndex: tokens.length - 1,
+  };
+}
+
+function renderCodeBlock(content: string): string {
+  const normalized = content.endsWith("\n") ? content.slice(0, -1) : content;
+  return `<pre><code>${escapeHtml(normalized)}</code></pre>`;
+}
+
+function appendBlock(block: string, separator: string): string {
+  if (!block) {
+    return "";
+  }
+  return `${block}${separator}`;
+}
+
+function trimTrailingBlockSeparators(text: string): string {
+  return text.replace(/\n+$/g, "");
+}
+
+function prefixListItem(text: string, prefix: string): string {
+  if (!text) {
+    return prefix.trimEnd();
+  }
+
+  const lines = text.split("\n");
+  const [firstLine = "", ...restLines] = lines;
+  const indentedRest = restLines.map((line) => (line ? `  ${line}` : line));
+  return [prefix + firstLine, ...indentedRest].join("\n");
 }
 
 function replaceMarkdownTables(text: string, replacer: (tableText: string) => string): string {
@@ -65,7 +314,7 @@ function replaceMarkdownTables(text: string, replacer: (tableText: string) => st
       continue;
     }
 
-    output.push(lines[index]);
+    output.push(lines[index] || "");
     index += 1;
   }
 
@@ -77,7 +326,7 @@ function isMarkdownTableHeader(lines: string[], index: number): boolean {
     return false;
   }
 
-  return isMarkdownTableRow(lines[index]) && isMarkdownTableSeparator(lines[index + 1]);
+  return isMarkdownTableRow(lines[index] || "") && isMarkdownTableSeparator(lines[index + 1] || "");
 }
 
 function isMarkdownTableRow(line: string): boolean {
@@ -99,7 +348,7 @@ function markdownTableToList(tableText: string): string {
     return tableText;
   }
 
-  const headers = rows[0];
+  const headers = rows[0] || [];
   const bodyRows = rows.slice(2);
 
   return bodyRows
