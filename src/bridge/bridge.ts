@@ -581,7 +581,6 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
           length: args.event.text.length,
           totalLength: activeRun.accumulatedText.length,
         });
-        this.stopTypingIndicator(activeRun);
         this.scheduleContentFlush(chatId);
         return;
       }

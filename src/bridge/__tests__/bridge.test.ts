@@ -835,6 +835,42 @@ describe("Bridge", () => {
       expect(textOf(progressSent!.text)).toContain("⏵︎⏵︎ bypassPermissions mode on");
     });
 
+    test("should keep typing active after assistant text arrives", async () => {
+      const typingTimer = setInterval(() => {}, 1000);
+      bridgeAccess.activeRuns.set(123456, {
+        runId: "run-123",
+        progressMessageId: 1,
+        stop: () => {},
+        contentDraftId: 1,
+        accumulatedText: "",
+        lastFlushedText: "",
+        phase: "Thinking",
+        lastProgressFlushedText: "",
+        sessionId: "session-123",
+        workspaceStatusLine: "workspace1 main ✓",
+        toolCalls: [],
+        startTime: Date.now(),
+        typingTimer,
+      });
+
+      try {
+        await bridgeAccess.handleClaudeEvent(123456, {
+          runId: "run-123",
+          workspacePath: join(testDir, "workspace1"),
+          workspaceName: "workspace1",
+          event: {
+            type: "assistant_text",
+            text: "partial response",
+          },
+        });
+
+        const activeRun = bridgeAccess.activeRuns.get(123456) as { typingTimer?: Timer };
+        expect(activeRun.typingTimer).toBe(typingTimer);
+      } finally {
+        clearInterval(typingTimer);
+      }
+    });
+
     test("should update progress message", async () => {
       // This test is simplified due to complex async timing
       // The main behavior is tested via integration
