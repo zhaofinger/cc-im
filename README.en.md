@@ -76,16 +76,16 @@ bash deploy/install-service.sh --user
 
 ## 🤖 Telegram Commands
 
-| Command | Description |
-| --- | --- |
-| `/start` | Show help |
-| `/workspace` | Select a workspace |
-| `/new` | Start a new session |
-| `/resume` | Resume a previous Claude session |
-| `/mode` | Switch permission mode |
-| `/status` | Show current state |
-| `/stop` | Stop the active run |
-| `/cc` | Show slash commands exposed by the current agent |
+| Command      | Description                                      |
+| ------------ | ------------------------------------------------ |
+| `/start`     | Show help                                        |
+| `/workspace` | Select a workspace                               |
+| `/new`       | Start a new session                              |
+| `/resume`    | Resume a previous Claude session                 |
+| `/mode`      | Switch permission mode                           |
+| `/status`    | Show current state                               |
+| `/stop`      | Stop the active run                              |
+| `/cc`        | Show slash commands exposed by the current agent |
 
 Any other text is forwarded to the configured agent in the selected workspace.
 
@@ -101,10 +101,10 @@ Copy `.env.example` to `.env`.
 
 Required:
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token |
-| `TELEGRAM_ALLOWED_CHAT_ID` | Yes | Restrict access to one chat |
+| Variable                   | Required | Description                 |
+| -------------------------- | -------- | --------------------------- |
+| `TELEGRAM_BOT_TOKEN`       | Yes      | Telegram bot token          |
+| `TELEGRAM_ALLOWED_CHAT_ID` | Yes      | Restrict access to one chat |
 
 Common optional:
 

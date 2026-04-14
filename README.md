@@ -76,16 +76,16 @@ bash deploy/install-service.sh --user
 
 ## 🤖 Telegram 命令
 
-| 命令 | 说明 |
-| --- | --- |
-| `/start` | 显示帮助 |
-| `/workspace` | 选择工作区 |
-| `/new` | 开启新会话 |
-| `/resume` | 恢复之前的 Claude 会话记录 |
-| `/mode` | 切换权限模式 |
-| `/status` | 查看当前状态 |
-| `/stop` | 停止当前运行 |
-| `/cc` | 查看当前 agent 提供的斜杠命令 |
+| 命令         | 说明                          |
+| ------------ | ----------------------------- |
+| `/start`     | 显示帮助                      |
+| `/workspace` | 选择工作区                    |
+| `/new`       | 开启新会话                    |
+| `/resume`    | 恢复之前的 Claude 会话记录    |
+| `/mode`      | 切换权限模式                  |
+| `/status`    | 查看当前状态                  |
+| `/stop`      | 停止当前运行                  |
+| `/cc`        | 查看当前 agent 提供的斜杠命令 |
 
 其他文本会直接转发给当前工作区中已配置的 agent。
 
@@ -101,10 +101,10 @@ bash deploy/install-service.sh --user
 
 必填项：
 
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | 是 | Telegram 机器人 Token |
-| `TELEGRAM_ALLOWED_CHAT_ID` | 是 | 仅允许指定聊天访问 |
+| 变量                       | 必填 | 说明                  |
+| -------------------------- | ---- | --------------------- |
+| `TELEGRAM_BOT_TOKEN`       | 是   | Telegram 机器人 Token |
+| `TELEGRAM_ALLOWED_CHAT_ID` | 是   | 仅允许指定聊天访问    |
 
 常用可选项：
 
