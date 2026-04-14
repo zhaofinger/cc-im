@@ -169,6 +169,15 @@ function createMockAgent(): AgentAdapter & { calls: AgentCall[] } {
   const calls: AgentCall[] = [];
   return {
     calls,
+    listAvailableSessions: (workspacePath: string) => {
+      void workspacePath;
+      return Array.from({ length: 10 }, (_, index) => ({
+        sessionId: `session-${index}`,
+        startedAt: new Date("2026-04-14T10:00:00Z").getTime() - index * 1000,
+        sizeBytes: (index + 1) * 1024,
+        summary: `Resume session ${index} with a somewhat longer summary`,
+      }));
+    },
     probeSlashCommands: async (workspacePath: string) => {
       calls.push({ method: "probeSlashCommands", workspacePath });
       return {
@@ -347,6 +356,25 @@ describe("Bridge", () => {
           textOf(s.text).includes("Select a workspace first"),
       );
       expect(sent).toBeDefined();
+    });
+
+    test("should handle /resume command with paginated sessions", async () => {
+      bridgeAccess.state.setSelectedWorkspace(123456, join(testDir, "workspace1"), "workspace1");
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/resume",
+      });
+
+      const sent = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "send" }> =>
+          isSentRecord(s) && s.type === "send" && textOf(s.text).includes("Resume Session"),
+      );
+      expect(sent).toBeDefined();
+      expect(textOf(sent!.text)).toContain("1-8 of 10");
+      expect(sent!.options).toBeDefined();
     });
 
     test("should reset current workspace session on /new", async () => {
@@ -569,6 +597,56 @@ describe("Bridge", () => {
       ).length;
       expect(sentCount).toBe(0);
     });
+
+    test("should stop a run even if /stop arrives before agent stop is ready", async () => {
+      bridgeAccess.state.setSelectedWorkspace(123456, join(testDir, "workspace1"), "workspace1");
+
+      let resolveSendMessage:
+        | ((value: { sessionId: string; stop: () => void }) => void)
+        | undefined;
+      const sendMessagePromise = new Promise<{ sessionId: string; stop: () => void }>((resolve) => {
+        resolveSendMessage = resolve;
+      });
+      const stopCalls: string[] = [];
+
+      agent.sendMessage = async (options) => {
+        agent.calls.push({ method: "sendMessage", ...options });
+        return await sendMessagePromise;
+      };
+
+      const runPromise = bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "hello",
+      });
+
+      for (let attempt = 0; attempt < 20 && !bridgeAccess.activeRuns.has(123456); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      expect(bridgeAccess.activeRuns.has(123456)).toBe(true);
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 2,
+        updateId: 2,
+        text: "/stop",
+      });
+
+      resolveSendMessage?.({
+        sessionId: "session-123",
+        stop: () => {
+          stopCalls.push("stopped");
+        },
+      });
+
+      await runPromise;
+
+      expect(stopCalls).toHaveLength(1);
+      expect(bridgeAccess.activeRuns.has(123456)).toBe(false);
+      expect(bridgeAccess.state.getChatState(123456).activeRunId).toBeUndefined();
+    });
   });
 
   describe("handleCallback", () => {
@@ -638,6 +716,30 @@ describe("Bridge", () => {
       expect(true).toBe(true);
     });
 
+    test("should handle resume page navigation", async () => {
+      await bridge.handleCallback({
+        id: "cb1",
+        chatId: 123456,
+        data: "ws:workspace1",
+      });
+
+      telegram.sent.length = 0;
+
+      await bridge.handleCallback({
+        id: "cb2",
+        chatId: 123456,
+        data: "rspage:1",
+        messageId: 100,
+      });
+
+      const edited = telegram.sent.find(
+        (s): s is Extract<SentRecord, { type: "edit" }> =>
+          isSentRecord(s) && s.type === "edit" && textOf(s.text).includes("Resume Session"),
+      );
+      expect(edited).toBeDefined();
+      expect(textOf(edited!.text)).toContain("9-10 of 10");
+    });
+
     test("should handle command run", async () => {
       // First select a workspace
       await bridge.handleCallback({
@@ -660,8 +762,41 @@ describe("Bridge", () => {
           isAgentCall(c) && c.method === "sendMessage",
       );
       expect(agentCall).toBeDefined();
+      expect(agentCall!.sessionId).toBe("session-0");
       expect(agentCall!.message).toBe("/commit");
       expect(agentCall!.mode).toBe("bypassPermissions");
+    });
+
+    test("should not resume latest session after /new", async () => {
+      await bridge.handleCallback({
+        id: "cb1",
+        chatId: 123456,
+        data: "ws:workspace1",
+      });
+
+      await bridge.handleMessage({
+        chatId: 123456,
+        messageId: 1,
+        updateId: 1,
+        text: "/new",
+      });
+
+      telegram.sent.length = 0;
+
+      await bridge.handleCallback({
+        id: "cb2",
+        chatId: 123456,
+        data: "ccrun:commit",
+      });
+
+      const agentCall = agent.calls
+        .filter(
+          (c): c is Extract<AgentCall, { method: "sendMessage" }> =>
+            isAgentCall(c) && c.method === "sendMessage",
+        )
+        .at(-1);
+      expect(agentCall).toBeDefined();
+      expect(agentCall!.sessionId).toBeUndefined();
     });
 
     test("should handle invalid page number gracefully", async () => {

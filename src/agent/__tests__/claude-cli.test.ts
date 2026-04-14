@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildClaudeCliArgs, parseSlashCommandsFromInitLine } from "../claude-cli.ts";
+import {
+  buildClaudeCliArgs,
+  extractSessionSummaryFromChunk,
+  parseSlashCommandsFromInitLine,
+  sanitizeClaudePath,
+} from "../claude-cli.ts";
 
 describe("buildClaudeCliArgs", () => {
   test("should start a new print session without resume flags", () => {
@@ -76,5 +81,33 @@ describe("buildClaudeCliArgs", () => {
     );
 
     expect(commands).toEqual(["debug", "review"]);
+  });
+
+  test("should extract first user message from transcript chunk", () => {
+    const summary = extractSessionSummaryFromChunk(
+      [
+        JSON.stringify({ type: "permission-mode", permissionMode: "default" }),
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "resume this session please" },
+        }),
+      ].join("\n"),
+    );
+
+    expect(summary).toBe("resume this session please");
+  });
+
+  test("should fall back to session placeholder when transcript has no user text", () => {
+    const summary = extractSessionSummaryFromChunk(
+      JSON.stringify({ type: "assistant", message: { content: "hello" } }),
+    );
+
+    expect(summary).toBe("(session)");
+  });
+
+  test("should sanitize workspace paths like Claude Code projects dir", () => {
+    expect(sanitizeClaudePath("/Users/bytedance/workspace/cc-im")).toBe(
+      "-Users-bytedance-workspace-cc-im",
+    );
   });
 });

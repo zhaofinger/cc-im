@@ -64,7 +64,7 @@ export type PersistedChatSelection = {
 export type WorkspaceSession = {
   workspacePath: string;
   workspaceName: string;
-  sessionId: string;
+  sessionId?: string;
   slashCommands: string[];
   lastTouchedAt: number;
 };

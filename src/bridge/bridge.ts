@@ -10,6 +10,7 @@ import {
   buildApprovalMenu,
   buildClaudeCommandsMenu,
   buildModeMenu,
+  buildSessionsMenu,
   buildWorkspaceMenu,
 } from "../telegram/menus.ts";
 import type {
@@ -23,6 +24,12 @@ import type {
   UserMessageInput,
 } from "../types.ts";
 import { markdownToTelegramHtml } from "../utils/telegram-formatting.ts";
+import {
+  buildNoSessionsMessage,
+  buildResumeMenuMessage,
+  buildSessionResumedMessage,
+  buildSessionStartedMessage,
+} from "../utils/session-messages.ts";
 import { escapeHtml } from "../utils/telegram-formatting.ts";
 import { buildStatusCardSections, renderPermissionModeLabel } from "../utils/status-view.ts";
 import { clipForTelegram } from "../utils/string.ts";
@@ -54,6 +61,7 @@ type ActiveRunRecord = {
   runId: string;
   progressMessageId: number;
   stop: () => void;
+  stopReady: boolean;
   contentDraftId: number;
   accumulatedText: string;
   lastFlushedText: string;
@@ -87,6 +95,7 @@ const BOT_COMMANDS = [
   { command: "start", description: "ℹ️ Show help" },
   { command: "workspace", description: "📁 Choose a workspace" },
   { command: "new", description: "🆕 Start a new Claude session" },
+  { command: "resume", description: "📂 Resume a previous session" },
   { command: "mode", description: "🛂 Choose permission mode" },
   { command: "status", description: "📊 Show current status" },
   { command: "stop", description: "⏹️ Stop the active run" },
@@ -109,6 +118,7 @@ const PROGRESS_PREFIXES = {
 export class Bridge {
   private readonly state: MemoryState;
   private readonly activeRuns = new Map<number, ActiveRunRecord>();
+  private readonly pendingStopRunIds = new Set<string>();
 
   constructor(
     private readonly config: AppConfig,
@@ -151,6 +161,7 @@ export class Bridge {
         "/cc": () => this.showClaudeMenu(chatId, 0),
         "/mode": () => this.showModeMenu(chatId),
         "/new": () => this.startNewSession(chatId),
+        "/resume": () => this.showResumeMenu(chatId),
         "/start": () =>
           this.telegram.sendMessage(
             chatId,
@@ -159,6 +170,7 @@ export class Bridge {
 ${FormattedString.bold("Commands")}
 ${FormattedString.code("/workspace")} - choose a workspace
 ${FormattedString.code("/new")} - start a new Claude session
+${FormattedString.code("/resume")} - resume a previous session
 ${FormattedString.code("/mode")} - choose Claude permission mode
 ${FormattedString.code("/status")} - show current status
 ${FormattedString.code("/stop")} - stop the current run
@@ -209,9 +221,19 @@ All other text is forwarded to Claude Code.
           ),
       ],
       [
+        "rspage:",
+        (value: string) =>
+          this.showResumeMenu(
+            chatId,
+            Number.isNaN(Number(value)) ? 0 : Number(value),
+            callback.messageId,
+          ),
+      ],
+      [
         "ccrun:",
         (value: string) => this.forwardToClaude(chatId, { text: `/${value}` }, callback.messageId),
       ],
+      ["resume:", (value: string) => this.resumeSession(chatId, value, callback.messageId)],
       ["approve:", (value: string) => this.resolveApproval(chatId, value, { type: "approve" })],
       ["edit:", (value: string) => this.promptApprovalInputEdit(chatId, value)],
       ["reject:", (value: string) => this.resolveApproval(chatId, value, { type: "reject" })],
@@ -252,6 +274,17 @@ All other text is forwarded to Claude Code.
     return selected;
   }
 
+  private resolveWorkspaceSessionId(workspacePath: string): string | undefined {
+    const session = this.state.getWorkspaceSession(workspacePath);
+    if (session?.sessionId === "") {
+      return undefined;
+    }
+    if (session?.sessionId) {
+      return session.sessionId;
+    }
+    return this.agent.listAvailableSessions?.(workspacePath)?.[0]?.sessionId;
+  }
+
   private async showWorkspaceMenu(chatId: number): Promise<void> {
     const workspaces = listWorkspaceNames(this.config.workspaceRoot);
     if (workspaces.length === 0) {
@@ -268,18 +301,19 @@ All other text is forwarded to Claude Code.
 
   private async selectWorkspace(chatId: number, workspaceName: string): Promise<void> {
     const workspacePath = resolveWorkspacePath(this.config.workspaceRoot, workspaceName);
+    console.log("finger workspacePath", workspacePath);
     this.state.setSelectedWorkspace(chatId, workspacePath, workspaceName);
 
     const existingSession = this.state.getWorkspaceSession(workspacePath);
-    const session =
-      existingSession ||
+    if (!existingSession) {
       this.state.setWorkspaceSession({
         workspaceName,
         workspacePath,
-        sessionId: "",
         slashCommands: [],
         lastTouchedAt: Date.now(),
       });
+    }
+    const sessionId = this.resolveWorkspaceSessionId(workspacePath);
 
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     await this.telegram.sendMessage(
@@ -287,7 +321,7 @@ All other text is forwarded to Claude Code.
       this.renderStatusCard({
         title: "<b>✅ Claude Code</b>",
         workspaceStatusLine,
-        sessionId: session.sessionId,
+        sessionId,
         sections: [{ heading: "State", body: "<blockquote>workspace selected</blockquote>" }],
       }),
       { parse_mode: "HTML" },
@@ -297,8 +331,8 @@ All other text is forwarded to Claude Code.
   private async showStatus(chatId: number): Promise<void> {
     const state = this.state.getChatState(chatId);
     const activeRun = this.activeRuns.get(chatId);
-    const session = state.selectedWorkspace
-      ? this.state.getWorkspaceSession(state.selectedWorkspace)
+    const sessionId = state.selectedWorkspace
+      ? this.resolveWorkspaceSessionId(state.selectedWorkspace)
       : undefined;
     const workspaceStatusLine =
       state.selectedWorkspace && state.selectedWorkspaceName
@@ -340,7 +374,7 @@ All other text is forwarded to Claude Code.
       this.renderStatusCard({
         title: "<b>📊 CC-IM Status</b>",
         workspaceStatusLine,
-        sessionId: session?.sessionId,
+        sessionId,
         sections,
       }),
       { parse_mode: "HTML" },
@@ -369,11 +403,7 @@ Current: ${FormattedString.code(this.renderPermissionModeLabel(state.permissionM
     }
 
     this.state.resetWorkspaceSession(workspacePath);
-    await this.telegram.sendMessage(
-      chatId,
-      fmt`🆕 ${FormattedString.bold("Started a new Claude session")}
-${FormattedString.code(workspaceName)}`,
-    );
+    await this.telegram.sendMessage(chatId, buildSessionStartedMessage(workspaceName));
   }
 
   private async selectPermissionMode(
@@ -409,7 +439,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
       session = this.state.setWorkspaceSession({
         workspaceName,
         workspacePath,
-        sessionId: probe.sessionId || session?.sessionId || "",
+        sessionId: session?.sessionId,
         slashCommands: probe.slashCommands,
         lastTouchedAt: Date.now(),
       });
@@ -438,6 +468,69 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
     });
   }
 
+  private async showResumeMenu(chatId: number, page = 0, editMessageId?: number): Promise<void> {
+    const selected = await this.requireWorkspace(chatId);
+    if (!selected) return;
+    const { workspacePath, workspaceName } = selected;
+
+    const sessions = this.agent.listAvailableSessions?.(workspacePath) || [];
+
+    if (sessions.length === 0) {
+      await this.telegram.sendMessage(chatId, buildNoSessionsMessage(workspaceName));
+      return;
+    }
+
+    const pageSize = Math.min(this.config.claudeCommandsPageSize, 8);
+    const safePage = Math.min(
+      Math.max(page, 0),
+      Math.max(0, Math.ceil(sessions.length / pageSize) - 1),
+    );
+    const start = safePage * pageSize;
+    const end = Math.min(start + pageSize, sessions.length);
+    const menu = buildSessionsMenu(sessions, safePage, pageSize);
+    const text = buildResumeMenuMessage({
+      workspaceName,
+      start: start + 1,
+      end,
+      total: sessions.length,
+    });
+    if (editMessageId) {
+      await this.telegram.editMessageText(chatId, editMessageId, text, {
+        reply_markup: menu,
+      });
+      return;
+    }
+    await this.telegram.sendMessage(chatId, text, { reply_markup: menu });
+  }
+
+  private async resumeSession(
+    chatId: number,
+    sessionId: string,
+    editMessageId?: number,
+  ): Promise<void> {
+    const selected = await this.requireWorkspace(chatId);
+    if (!selected) return;
+    const { workspacePath, workspaceName } = selected;
+
+    // Update the workspace session with the selected sessionId
+    const existingSession = this.state.getWorkspaceSession(workspacePath);
+    this.state.setWorkspaceSession({
+      workspaceName,
+      workspacePath,
+      sessionId,
+      slashCommands: existingSession?.slashCommands || [],
+      lastTouchedAt: Date.now(),
+    });
+
+    const text = buildSessionResumedMessage(workspaceName, sessionId);
+
+    if (editMessageId) {
+      await this.telegram.editMessageText(chatId, editMessageId, text);
+    } else {
+      await this.telegram.sendMessage(chatId, text);
+    }
+  }
+
   private async stopRun(chatId: number): Promise<void> {
     const activeRun = this.activeRuns.get(chatId);
     if (!activeRun) {
@@ -449,6 +542,9 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
       clearPendingApprovalTimer(state.pendingApproval);
     }
     this.state.setPendingInputEdit(chatId, undefined);
+    if (!activeRun.stopReady) {
+      this.pendingStopRunIds.add(activeRun.runId);
+    }
     activeRun.stop();
     this.cancelProgressFlush(activeRun);
     this.stopTypingIndicator(activeRun);
@@ -488,6 +584,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
     const permissionMode = state.permissionMode;
     const workspaceStatusLine = await this.describeWorkspaceStatus(workspacePath, workspaceName);
     const existingSession = this.state.getWorkspaceSession(workspacePath);
+    const resolvedSessionId = this.resolveWorkspaceSessionId(workspacePath);
     const prompt = this.buildAgentPrompt(message);
     const runId = randomUUID();
     const progressMessageId = await this.telegram.sendMessage(
@@ -505,12 +602,13 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
       runId,
       progressMessageId,
       stop: () => {},
+      stopReady: false,
       contentDraftId: draftId || 1,
       accumulatedText: "",
       lastFlushedText: "",
       phase: "Starting",
       lastProgressFlushedText: "",
-      sessionId: existingSession?.sessionId || "",
+      sessionId: resolvedSessionId || "",
       workspaceStatusLine,
       toolCalls: [],
       startTime: Date.now(),
@@ -521,7 +619,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
     const { sessionId, stop } = await this.agent.sendMessage({
       runId,
       workspacePath,
-      sessionId: existingSession?.sessionId || undefined,
+      sessionId: resolvedSessionId,
       message: prompt,
       mode: permissionMode,
       requestApproval: (request) => this.waitForApproval(chatId, runId, request),
@@ -536,15 +634,21 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
     });
 
     const activeRun = this.activeRuns.get(chatId);
+    if (this.pendingStopRunIds.delete(runId)) {
+      stop();
+      return;
+    }
+
     if (activeRun && activeRun.runId === runId) {
       activeRun.stop = stop;
+      activeRun.stopReady = true;
       activeRun.sessionId = sessionId || activeRun.sessionId;
     }
 
     this.state.setWorkspaceSession({
       workspaceName,
       workspacePath,
-      sessionId: sessionId || existingSession?.sessionId || "",
+      sessionId: undefined,
       slashCommands: existingSession?.slashCommands || [],
       lastTouchedAt: Date.now(),
     });
@@ -565,7 +669,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
         this.state.setWorkspaceSession({
           workspaceName: args.workspaceName,
           workspacePath: args.workspacePath,
-          sessionId: activeRun.sessionId,
+          sessionId: existing?.sessionId,
           slashCommands: args.event.commands,
           lastTouchedAt: Date.now(),
         });
@@ -594,7 +698,7 @@ ${FormattedString.code(this.renderPermissionModeLabel(permissionMode))}.${suffix
           this.state.setWorkspaceSession({
             workspaceName: args.workspaceName,
             workspacePath: args.workspacePath,
-            sessionId: readySessionId,
+            sessionId: this.state.getWorkspaceSession(args.workspacePath)?.sessionId,
             slashCommands: this.state.getWorkspaceSession(args.workspacePath)?.slashCommands || [],
             lastTouchedAt: Date.now(),
           });

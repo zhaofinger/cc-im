@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export function isWorkspaceDirName(name: string): boolean {
@@ -35,5 +35,6 @@ export function resolveWorkspacePath(workspaceRoot: string, workspaceName: strin
   if (!stats.isDirectory()) {
     throw new Error("Workspace is not a directory");
   }
-  return normalized;
+  // Return the real path (resolves symlinks) for consistent comparison
+  return realpathSync(normalized);
 }

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildWorkspaceMenu, buildClaudeCommandsMenu, buildApprovalMenu } from "../menus.ts";
+import {
+  buildApprovalMenu,
+  buildClaudeCommandsMenu,
+  buildSessionsMenu,
+  buildWorkspaceMenu,
+} from "../menus.ts";
 
 // Helper to get callback_data from button
 // Inline keyboard buttons can be various types, we need to extract callback_data from text buttons
@@ -186,5 +191,49 @@ describe("buildApprovalMenu", () => {
   test("should handle approval ID with special characters", () => {
     const menu = buildApprovalMenu("id_with-special.chars");
     expect(getCallbackData(menu.inline_keyboard[0][0])).toBe("approve:id_with-special.chars");
+  });
+});
+
+describe("buildSessionsMenu", () => {
+  test("should create buttons for resume sessions", () => {
+    const menu = buildSessionsMenu(
+      [
+        {
+          sessionId: "session-123",
+          startedAt: new Date("2026-04-14T10:00:00Z").getTime(),
+          sizeBytes: 12 * 1024,
+          summary: "Fix /resume",
+        },
+      ],
+      0,
+      8,
+    );
+
+    expect(menu.inline_keyboard.length).toBe(2);
+    expect(menu.inline_keyboard[0][0].text).toContain("04_14 · 12KB · session-");
+    expect(menu.inline_keyboard[0][0].text).toContain("Fix /resume");
+    expect(getCallbackData(menu.inline_keyboard[0][0])).toBe("resume:session-123");
+  });
+
+  test("should paginate resume sessions", () => {
+    const menu = buildSessionsMenu(
+      Array.from({ length: 10 }, (_, index) => ({
+        sessionId: `session-${index}`,
+        startedAt: new Date("2026-04-14T10:00:00Z").getTime() - index * 1000,
+        sizeBytes: (index + 1) * 1024,
+        summary: `Resume item ${index}`,
+      })),
+      1,
+      4,
+    );
+
+    const navRow = menu.inline_keyboard[menu.inline_keyboard.length - 1];
+    expect(navRow.some((btn) => btn.text === "Prev" && getCallbackData(btn) === "rspage:0")).toBe(
+      true,
+    );
+    expect(navRow.some((btn) => btn.text === "2/3" && getCallbackData(btn) === "noop")).toBe(true);
+    expect(navRow.some((btn) => btn.text === "Next" && getCallbackData(btn) === "rspage:2")).toBe(
+      true,
+    );
   });
 });

@@ -1,4 +1,5 @@
 import type { ApprovalDecision, ApprovalRequest, ClaudeEvent, PermissionMode } from "../types.ts";
+import type { ClaudeSession } from "./claude-cli.ts";
 
 export type CommandProbe = {
   sessionId?: string;
@@ -7,6 +8,7 @@ export type CommandProbe = {
 
 export interface AgentAdapter {
   probeSlashCommands(workspacePath: string): Promise<CommandProbe>;
+  listAvailableSessions?(workspacePath: string): ClaudeSession[];
   sendMessage(options: {
     runId: string;
     workspacePath: string;

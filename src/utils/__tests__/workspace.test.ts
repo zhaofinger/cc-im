@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -167,7 +167,7 @@ describe("resolveWorkspacePath", () => {
 
   test("should resolve valid workspace path", () => {
     const result = resolveWorkspacePath(testDir, "valid-workspace");
-    expect(result).toBe(join(testDir, "valid-workspace"));
+    expect(result).toBe(realpathSync(join(testDir, "valid-workspace")));
   });
 
   test("should throw error for path traversal attempt", () => {
@@ -191,7 +191,7 @@ describe("resolveWorkspacePath", () => {
     // Create a workspace that matches the root name
     mkdirSync(join(testDir, "subdir"), { recursive: true });
     const result = resolveWorkspacePath(testDir, "subdir");
-    expect(result).toBe(join(testDir, "subdir"));
+    expect(result).toBe(realpathSync(join(testDir, "subdir")));
   });
 
   test("should handle nested workspace paths", () => {
@@ -200,7 +200,7 @@ describe("resolveWorkspacePath", () => {
 
     // This should work since parent is within root
     const result = resolveWorkspacePath(testDir, "parent");
-    expect(result).toBe(join(testDir, "parent"));
+    expect(result).toBe(realpathSync(join(testDir, "parent")));
   });
 
   test("should reject absolute paths outside root", () => {

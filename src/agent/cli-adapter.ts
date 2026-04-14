@@ -2,7 +2,7 @@ import type { AppConfig } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import type { ApprovalDecision, ApprovalRequest, ClaudeEvent, PermissionMode } from "../types.ts";
 import { shorten } from "../utils/string.ts";
-import { ClaudeCliRunner } from "./claude-cli.ts";
+import { ClaudeCliRunner, type ClaudeSession } from "./claude-cli.ts";
 import type { CliRunSession, CliRunner } from "./cli-runner.ts";
 import { CodexCliRunner } from "./codex-cli.ts";
 import type { AgentAdapter, CommandProbe } from "./types.ts";
@@ -59,6 +59,13 @@ export class CliAdapter implements AgentAdapter {
     private readonly logger: Logger,
   ) {
     this.runner = config.agentProvider === "codex" ? new CodexCliRunner() : new ClaudeCliRunner();
+  }
+
+  listAvailableSessions(workspacePath: string): ClaudeSession[] {
+    if (this.runner instanceof ClaudeCliRunner) {
+      return this.runner.listAvailableSessions(workspacePath);
+    }
+    return [];
   }
 
   async probeSlashCommands(workspacePath: string): Promise<CommandProbe> {
