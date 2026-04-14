@@ -542,13 +542,6 @@ setup_env() {
         mkdir -p "$WORKSPACE_ROOT"
     fi
 
-    # Optional: Log Directory
-    echo ""
-    log_prompt "Enter log directory (default: $INSTALL_DIR/logs):"
-    local LOG_DIR="${LOG_DIR:-}"
-    read_optional_input LOG_DIR "${LOG_DIR:-$INSTALL_DIR/logs}"
-    LOG_DIR=${LOG_DIR:-$INSTALL_DIR/logs}
-
     # Create .env file
     cat > "$ENV_FILE" << EOF
 # Telegram Bot Configuration (Required)
@@ -559,10 +552,6 @@ TELEGRAM_ALLOWED_CHAT_ID=$TELEGRAM_ALLOWED_CHAT_ID
 
 # Paths
 WORKSPACE_ROOT=$WORKSPACE_ROOT
-LOG_DIR=$LOG_DIR
-
-# Claude Commands Page Size
-CLAUDE_COMMANDS_PAGE_SIZE=8
 
 # Agent Provider (claude or codex)
 AGENT_PROVIDER=claude

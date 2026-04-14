@@ -47,7 +47,6 @@ describe("install.sh", () => {
   test("creates .env from environment variables in non-interactive mode", () => {
     const installDir = join(tempDir, ".cc-im");
     const workspaceRoot = join(tempDir, "workspace");
-    const logDir = join(tempDir, "logs");
     const result = Bun.spawnSync({
       cmd: [
         "bash",
@@ -61,7 +60,6 @@ describe("install.sh", () => {
         TELEGRAM_BOT_TOKEN: "test-token",
         TELEGRAM_ALLOWED_CHAT_ID: "123456",
         WORKSPACE_ROOT: workspaceRoot,
-        LOG_DIR: logDir,
       },
     });
 
@@ -74,7 +72,6 @@ describe("install.sh", () => {
     expect(contents).toContain("TELEGRAM_BOT_TOKEN=test-token");
     expect(contents).toContain("TELEGRAM_ALLOWED_CHAT_ID=123456");
     expect(contents).toContain(`WORKSPACE_ROOT=${workspaceRoot}`);
-    expect(contents).toContain(`LOG_DIR=${logDir}`);
   });
 
   test("syncs anthropic variables from current shell environment into .env", () => {
@@ -276,6 +273,8 @@ describe("install.sh", () => {
     expect(contents).not.toContain("\nGroup=");
     expect(contents).toContain(`WorkingDirectory=${projectDir}`);
     expect(contents).toContain(`Environment="PATH=${fakeBinDir}:`);
+    expect(contents).toContain(`${homeDir}/.cc-im/logs/app.log`);
+    expect(contents).toContain(`${homeDir}/.cc-im/logs/error.log`);
     expect(contents).toContain(`${homeDir}/.local/bin`);
     expect(contents).toContain(`${homeDir}/bin`);
     expect(contents).toContain(`${homeDir}/.bun/bin`);

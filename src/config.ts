@@ -1,4 +1,14 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { PermissionMode } from "./types.ts";
+
+const DEFAULT_COMMANDS_PAGE_SIZE = 8;
+const DEFAULT_APPROVAL_TIMEOUT_MS = 300000;
+const DEFAULT_INPUT_EDIT_TIMEOUT_MS = 300000;
+const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
+const DEFAULT_PROGRESS_DEBOUNCE_MS = 1000;
+const DEFAULT_PROGRESS_MIN_INTERVAL_MS = 2000;
+const DEFAULT_LOG_DIR = join(homedir(), ".cc-im", "logs");
 
 export type AppConfig = {
   telegramBotToken: string;
@@ -39,31 +49,17 @@ export function loadConfig(): AppConfig {
     throw new Error("AGENT_PROVIDER must be 'claude' or 'codex'");
   }
 
-  const permissionMode = Bun.env.CLAUDE_DEFAULT_PERMISSION_MODE || "default";
-  if (
-    permissionMode !== "default" &&
-    permissionMode !== "acceptEdits" &&
-    permissionMode !== "plan" &&
-    permissionMode !== "bypassPermissions" &&
-    permissionMode !== "auto" &&
-    permissionMode !== "dontAsk"
-  ) {
-    throw new Error(
-      "CLAUDE_DEFAULT_PERMISSION_MODE must be one of: default, acceptEdits, plan, bypassPermissions, auto, dontAsk",
-    );
-  }
-
   return {
     telegramBotToken: token,
     telegramAllowedChatId: allowedChatId,
     workspaceRoot,
-    logDir: Bun.env.LOG_DIR || "./cc_im_logs",
+    logDir: DEFAULT_LOG_DIR,
     agentProvider: provider as "claude" | "codex",
-    claudeCommandsPageSize: Number(Bun.env.CLAUDE_COMMANDS_PAGE_SIZE || "8"),
-    claudeApprovalTimeoutMs: Number(Bun.env.CLAUDE_APPROVAL_TIMEOUT_MS || "300000"),
-    claudeInputEditTimeoutMs: Number(Bun.env.CLAUDE_INPUT_EDIT_TIMEOUT_MS || "300000"),
-    claudeDefaultPermissionMode: permissionMode as PermissionMode,
-    telegramProgressDebounceMs: Number(Bun.env.TELEGRAM_PROGRESS_DEBOUNCE_MS || "1000"),
-    telegramProgressMinIntervalMs: Number(Bun.env.TELEGRAM_PROGRESS_MIN_INTERVAL_MS || "2000"),
+    claudeCommandsPageSize: DEFAULT_COMMANDS_PAGE_SIZE,
+    claudeApprovalTimeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
+    claudeInputEditTimeoutMs: DEFAULT_INPUT_EDIT_TIMEOUT_MS,
+    claudeDefaultPermissionMode: DEFAULT_PERMISSION_MODE,
+    telegramProgressDebounceMs: DEFAULT_PROGRESS_DEBOUNCE_MS,
+    telegramProgressMinIntervalMs: DEFAULT_PROGRESS_MIN_INTERVAL_MS,
   };
 }

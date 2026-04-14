@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SERVICE_NAME="cc-im"
-LOG_DIR="$PROJECT_DIR/logs"
+LOG_DIR="$HOME/.cc-im/logs"
 
 # Colors for output
 RED='\033[0;31m'
