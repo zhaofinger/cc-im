@@ -959,10 +959,10 @@ describe("Bridge", () => {
 
       expect(text).toContain("<b>✅ Claude Code</b>");
       expect(text).toContain("<b>Tool</b>");
-      expect(text).toContain("<blockquote expandable>✓ bash\ncurl -s wttr.in/test</blockquote>");
-      expect(text).toContain("<blockquote expandable>⠋ read 正在执行\nsrc/main.ts</blockquote>");
-      expect(text.indexOf("✓ bash\ncurl -s wttr.in/test")).toBeLessThan(
-        text.indexOf("⠋ read 正在执行\nsrc/main.ts"),
+      expect(text).toContain("<blockquote expandable>✓ 🐚 bash\ncurl -s wttr.in/test</blockquote>");
+      expect(text).toContain("<blockquote expandable>⠋ 📖 read 正在执行\nsrc/main.ts</blockquote>");
+      expect(text.indexOf("✓ 🐚 bash\ncurl -s wttr.in/test")).toBeLessThan(
+        text.indexOf("⠋ 📖 read 正在执行\nsrc/main.ts"),
       );
     });
 
@@ -1023,7 +1023,7 @@ describe("Bridge", () => {
         spinnerIndex: 0,
       });
 
-      expect(text).toContain("<blockquote expandable>✓ Skill\n{");
+      expect(text).toContain("<blockquote expandable>✓ 🧰 Skill\n{");
       expect(text).toContain('\n  "skill": "simplify",');
       expect(text).toContain('\n  "args": "--help",');
     });

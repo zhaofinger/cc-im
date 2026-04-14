@@ -1147,12 +1147,36 @@ ${FormattedString.code(message)}`,
   }
 
   private renderToolUseBlock(icon: string, tool: ToolCall, suffix?: string): string {
-    const title = `${icon} ${tool.name}${suffix ? ` ${suffix}` : ""}`;
+    const title = `${icon} ${this.renderToolLabel(tool.name)}${suffix ? ` ${suffix}` : ""}`;
     const detail = this.formatToolDetail(tool);
     if (!detail) {
       return `<blockquote>${escapeHtml(title)}</blockquote>`;
     }
     return `<blockquote expandable>${escapeHtml(`${title}\n${detail}`)}</blockquote>`;
+  }
+
+  private renderToolLabel(toolName: string): string {
+    const normalized = toolName.trim().toLowerCase();
+    const emoji = this.toolEmojiForName(normalized);
+    return emoji ? `${emoji} ${toolName}` : toolName;
+  }
+
+  private toolEmojiForName(toolName: string): string {
+    if (toolName === "bash") return "🐚";
+    if (toolName === "read") return "📖";
+    if (toolName === "write") return "✍️";
+    if (toolName === "edit") return "✏️";
+    if (toolName === "multiedit") return "🧩";
+    if (toolName === "todowrite") return "✅";
+    if (toolName === "todoread") return "📋";
+    if (toolName === "glob" || toolName === "grep" || toolName === "search") return "🔎";
+    if (toolName === "webfetch" || toolName === "fetch") return "🌐";
+    if (toolName === "skill") return "🧰";
+    if (toolName.startsWith("mcp__figma__")) return "🎨";
+    if (toolName.startsWith("mcp__")) return "🔌";
+    if (toolName.includes("github") || toolName.startsWith("gh")) return "🐙";
+    if (toolName.includes("tavily")) return "🌐";
+    return "";
   }
 
   private formatToolDetail(tool: ToolCall): string {
